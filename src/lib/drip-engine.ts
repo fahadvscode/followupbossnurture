@@ -10,6 +10,7 @@ import {
 } from './fub';
 import { normalizePhone, formatDripStepDayLabel } from './utils';
 import { deliveryErrorMeta } from './delivery-error-meta';
+import { sendAiMessage } from './ai-engine';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
 
 interface CampaignSendContext {
@@ -652,12 +653,38 @@ export async function autoEnrollContact(contactId: string, tags: string[], sourc
 
     if (existing) continue;
 
-    await db.from('drip_enrollments').insert({
-      contact_id: contactId,
-      campaign_id: campaign.id,
-      status: 'active',
-      current_step: 0,
-      enrolled_at: new Date().toISOString(),
-    });
+    const { data: enrollment } = await db
+      .from('drip_enrollments')
+      .insert({
+        contact_id: contactId,
+        campaign_id: campaign.id,
+        status: 'active',
+        current_step: 0,
+        enrolled_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (
+      campaign.campaign_type === 'ai_nurture' &&
+      enrollment &&
+      process.env.DEEPSEEK_API_KEY?.trim()
+    ) {
+      const { data: contactRow } = await db
+        .from('drip_contacts')
+        .select('*')
+        .eq('id', contactId)
+        .single();
+
+      if (contactRow) {
+        sendAiMessage({
+          enrollmentId: enrollment.id,
+          contactId,
+          campaignId: campaign.id,
+          contact: contactRow,
+          isFollowUp: false,
+        }).catch((e) => console.error('AI first-touch failed:', e));
+      }
+    }
   }
 }

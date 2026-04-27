@@ -63,6 +63,8 @@ export type SourceCategory =
   | 'Google'
   | 'Other';
 
+export type CampaignType = 'standard' | 'ai_nurture';
+
 export interface DripCampaign {
   id: string;
   name: string;
@@ -70,6 +72,7 @@ export interface DripCampaign {
   trigger_tags: string[];
   trigger_sources: string[];
   status: CampaignStatus;
+  campaign_type: CampaignType;
   /** E.164 Twilio number to send this campaign from; null uses TWILIO_PHONE_NUMBER env */
   twilio_from_number: string | null;
   created_at: string;
@@ -231,6 +234,81 @@ export interface StepPerformance {
   failed: number;
   replies: number;
   reply_rate: number;
+}
+
+// ─── AI Nurture Engine types ─────────────────────────────────────────
+
+export type AiCampaignGoal = 'book_call' | 'long_nurture' | 'visit_site';
+export type AiEscalationAction = 'pause' | 'fub_task' | 'both';
+export type AiConversationStatus = 'active' | 'paused' | 'escalated' | 'goal_met';
+export type AiMediaSendWith = 'first' | 'follow_up' | 'any' | 'manual';
+export type AiDocType = 'text' | 'file';
+
+export interface AiCampaignConfig {
+  id: string;
+  campaign_id: string;
+  goal: AiCampaignGoal;
+  booking_url: string | null;
+  landing_url: string | null;
+  personality: string;
+  max_exchanges: number;
+  follow_up_delay_minutes: number;
+  max_follow_ups: number;
+  escalation_action: AiEscalationAction;
+  escalation_fub_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiKnowledgeDoc {
+  id: string;
+  campaign_id: string;
+  doc_type: AiDocType;
+  title: string;
+  content_text: string;
+  file_url: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  mime_type: string | null;
+  extracted_text: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface AiMedia {
+  id: string;
+  campaign_id: string;
+  title: string;
+  media_url: string;
+  mime_type: string | null;
+  send_with: AiMediaSendWith;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface AiConversation {
+  id: string;
+  enrollment_id: string;
+  contact_id: string;
+  campaign_id: string;
+  exchange_count: number;
+  follow_up_count: number;
+  last_outbound_at: string | null;
+  last_inbound_at: string | null;
+  status: AiConversationStatus;
+  goal_met_at: string | null;
+  escalation_reason: string | null;
+  conversation_summary: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiCampaignWithConfig extends DripCampaign {
+  ai_config: AiCampaignConfig;
+}
+
+export interface AiConversationWithContact extends AiConversation {
+  contact: DripContact;
 }
 
 export interface FUBPerson {

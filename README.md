@@ -26,6 +26,7 @@ If the project already existed, also run any `supabase/migration_add_*.sql` file
 - `migration_add_fub_task_steps.sql` — task columns
 - `migration_add_email_steps.sql` — email columns + step_type constraint
 - `migration_add_fub_action_plan_steps.sql` — action plan column + updated constraint
+- `migration_ai_nurture.sql` — AI nurture engine tables (campaign config, knowledge docs, media, conversations)
 
 **Shortcut for older DBs:** if the seed fails with missing columns on `drip_campaign_steps`, run `migration_drip_steps_catchup.sql` once (adds email, task, action-plan columns and the final `step_type` check).
 
@@ -49,6 +50,7 @@ Copy `.env.local` and fill in missing values:
 - **Email drip steps (Follow Up Boss):** the app uses FUB's **email marketing API** (`/emCampaigns` + `/emEvents`) so each send appears on the person's timeline. Set **`FUB_EMAIL_USER_ID`** (numeric FUB user id) so the send is attributed to the same agent as in FUB (optional; falls back to `FUB_DEFAULT_TASK_ASSIGNED_USER_ID`). FUB's API does **not** send through the Gmail/Outlook OAuth connection by itself.
 - **Inbox delivery (optional SMTP):** to actually deliver to the lead's mailbox from the same address you use in FUB, add SMTP for that mailbox — e.g. **`SMTP_HOST`**, **`SMTP_PORT`** (587 or 465), **`SMTP_USER`**, **`SMTP_PASS`** (Google: [app password](https://support.google.com/accounts/answer/185833)), and **`EMAIL_FROM`** (must match that mailbox, e.g. `Jane Agent <jane@yourbroker.com>`).
 - **FUB Action Plans:** for email steps that send directly from the agent's connected FUB inbox (Gmail/Outlook), create the email sequence as an FUB Action Plan, then use the "FUB Action Plan" step type and pick the plan. No SMTP needed — replies go straight to FUB.
+- **AI Nurture (optional):** set **`DEEPSEEK_API_KEY`** from [platform.deepseek.com](https://platform.deepseek.com). This powers the AI Nurture campaign type — conversational SMS via DeepSeek. Without it, AI campaigns won't send but the rest of the app is unaffected.
 
 ### 3. Run locally
 
@@ -85,3 +87,19 @@ After deploying, configure:
 - **FUB Two-way Timeline Sync**: Every outbound SMS, email, task, and action plan trigger is logged to the lead's FUB timeline. Inbound replies and opt-outs are also pushed.
 - **Lead Intelligence**: Source breakdown, engagement rates, conversion funnel
 - **Campaign Analytics**: Per-step performance, reply rates, daily trends
+- **AI Nurture Engine**: Conversational AI-powered SMS campaigns using DeepSeek:
+  - Upload project knowledge (docs, pricing, location) — AI uses it for natural texting
+  - 3 campaign goals: book a call, long-term nurture, drive to website
+  - MMS support: attach banners/flyers as images alongside AI-generated text
+  - Auto-reply with sentiment detection: pauses and escalates if lead is angry or asks for a human
+  - Configurable follow-up cadence and max exchanges before escalation
+  - Conversation thread view with full message history
+
+### 6. AI Nurture — Supabase Storage (optional, for file uploads)
+
+If you want to upload PDF/DOCX knowledge docs or MMS banners via file upload instead of pasting URLs:
+
+1. In Supabase Dashboard → Storage, create two buckets:
+   - `ai-nurture-docs` (private) — for knowledge documents
+   - `ai-nurture-media` (public) — for MMS images (Twilio needs a public URL)
+2. The current version accepts pasted text and direct URLs; file upload with Supabase Storage is ready to wire up when needed.

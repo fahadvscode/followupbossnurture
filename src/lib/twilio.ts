@@ -59,6 +59,32 @@ export async function sendSMS(
   return { sid: message.sid, status: message.status };
 }
 
+export async function sendMMS(
+  to: string,
+  body: string,
+  mediaUrl: string,
+  fromOverride?: string | null
+): Promise<{ sid: string; status: string }> {
+  const client = getClient();
+  const from = (fromOverride?.trim() || process.env.TWILIO_PHONE_NUMBER?.trim() || '').trim();
+  if (!from) {
+    throw new Error(
+      'No sending number: pick a Twilio number on the campaign or set TWILIO_PHONE_NUMBER in env'
+    );
+  }
+
+  const statusCallback = resolveTwilioStatusCallbackUrl();
+  const message = await client.messages.create({
+    to,
+    from,
+    body,
+    mediaUrl: [mediaUrl],
+    ...(statusCallback ? { statusCallback } : {}),
+  });
+
+  return { sid: message.sid, status: message.status };
+}
+
 export function renderTemplate(template: string, variables: Record<string, string>): string {
   let result = template;
   for (const [key, value] of Object.entries(variables)) {

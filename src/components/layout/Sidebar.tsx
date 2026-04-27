@@ -13,6 +13,7 @@ import {
   LogOut,
   Zap,
   FileStack,
+  Sparkles,
   Menu,
   X,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/contacts', label: 'Contacts', icon: Users },
   { href: '/campaigns', label: 'Campaigns', icon: MessageSquare },
+  { href: '/ai-nurture', label: 'AI Nurture', icon: Sparkles },
   { href: '/templates', label: 'Templates', icon: FileStack },
   { href: '/intelligence', label: 'Intelligence', icon: Brain },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },

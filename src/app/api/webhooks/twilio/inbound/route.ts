@@ -3,6 +3,7 @@ import { getServiceClient } from '@/lib/supabase';
 import { isOptOut } from '@/lib/twilio';
 import { pushEvent } from '@/lib/fub';
 import { normalizePhone } from '@/lib/utils';
+import { handleAiReply } from '@/lib/ai-engine';
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -47,7 +48,7 @@ async function handleReply(
 ) {
   const { data: activeRows } = await db
     .from('drip_enrollments')
-    .select('*, campaign:drip_campaigns(name)')
+    .select('*, campaign:drip_campaigns(name, campaign_type)')
     .eq('contact_id', contact.id)
     .eq('status', 'active')
     .order('enrolled_at', { ascending: false });
@@ -68,13 +69,40 @@ async function handleReply(
     sent_at: new Date().toISOString(),
   });
 
-  if (activeList.length > 0) {
+  // ── AI nurture: auto-reply instead of pausing ──────────────────────
+  const aiHandled: string[] = [];
+  if (activeList.length > 0 && process.env.DEEPSEEK_API_KEY?.trim() && !isOptOut(body)) {
+    for (const enrollment of activeList) {
+      const campRow = enrollment.campaign as { name?: string; campaign_type?: string } | null;
+      if (campRow?.campaign_type === 'ai_nurture') {
+        try {
+          await handleAiReply({
+            enrollmentId: enrollment.id,
+            contactId: contact.id,
+            campaignId: enrollment.campaign_id,
+            contact: contact as Parameters<typeof handleAiReply>[0]['contact'],
+            inboundBody: body,
+          });
+          aiHandled.push(enrollment.id);
+        } catch (e) {
+          console.error('AI reply failed for enrollment', enrollment.id, e);
+        }
+      }
+    }
+  }
+
+  // Pause only non-AI (standard) enrollments on reply
+  const standardToUpdate = activeList.filter(
+    (e) => !aiHandled.includes(e.id)
+  );
+  if (standardToUpdate.length > 0) {
     const now = new Date().toISOString();
     await db
       .from('drip_enrollments')
       .update({ status: 'paused', paused_at: now })
       .eq('contact_id', contact.id)
-      .eq('status', 'active');
+      .eq('status', 'active')
+      .not('id', 'in', `(${aiHandled.join(',')})`);
   }
 
   if (isOptOut(body)) {
