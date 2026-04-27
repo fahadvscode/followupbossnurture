@@ -98,6 +98,7 @@ type CampaignRowEmbed = {
   name: string;
   status: string;
   twilio_from_number: string | null;
+  campaign_type?: string | null;
 };
 
 function unwrapOne<T>(row: T | T[] | null | undefined): T | null {
@@ -204,6 +205,13 @@ export async function findDueMessagesWithDiagnostics(): Promise<{
     }
 
     if (!stepRow) {
+      if (campaignRow.campaign_type === 'ai_nurture') {
+        pushSkip(
+          'ai_nurture_no_drip_steps',
+          'AI nurture uses the AI engine + cron, not step-based drips'
+        );
+        continue;
+      }
       await db
         .from('drip_enrollments')
         .update({ status: 'completed', completed_at: now })
@@ -614,6 +622,49 @@ async function processFubTaskStep(msg: DueMessage): Promise<boolean> {
   }
 }
 
+// ─── AI Nurture: first SMS after any enrollment (manual, auto, etc.) ──
+
+/**
+ * Call after an enrollment row is created. For `ai_nurture` campaigns, sends
+ * the first AI message when `DEEPSEEK_API_KEY` and contact phone exist.
+ * Idempotent in practice: safe to call once per new enrollment.
+ */
+export async function sendAiNurtureFirstTouchAfterEnroll(params: {
+  enrollmentId: string;
+  contactId: string;
+  campaignId: string;
+}): Promise<void> {
+  const { enrollmentId, contactId, campaignId } = params;
+  const db = getServiceClient();
+  const { data: campaign } = await db
+    .from('drip_campaigns')
+    .select('campaign_type, status')
+    .eq('id', campaignId)
+    .single();
+
+  if (campaign?.campaign_type !== 'ai_nurture' || campaign.status !== 'active') {
+    return;
+  }
+  if (!process.env.DEEPSEEK_API_KEY?.trim()) {
+    console.warn('sendAiNurtureFirstTouch: DEEPSEEK_API_KEY is not set; skipping first AI SMS');
+    return;
+  }
+  const { data: contactRow } = await db
+    .from('drip_contacts')
+    .select('*')
+    .eq('id', contactId)
+    .single();
+  if (!contactRow) return;
+
+  await sendAiMessage({
+    enrollmentId,
+    contactId,
+    campaignId,
+    contact: contactRow,
+    isFollowUp: false,
+  }).catch((e) => console.error('AI first-touch failed:', e));
+}
+
 // ─── Auto-enrollment ─────────────────────────────────────────────────
 
 function tagMatchesTrigger(contactTags: string[], trigger: string): boolean {
@@ -665,26 +716,12 @@ export async function autoEnrollContact(contactId: string, tags: string[], sourc
       .select('id')
       .single();
 
-    if (
-      campaign.campaign_type === 'ai_nurture' &&
-      enrollment &&
-      process.env.DEEPSEEK_API_KEY?.trim()
-    ) {
-      const { data: contactRow } = await db
-        .from('drip_contacts')
-        .select('*')
-        .eq('id', contactId)
-        .single();
-
-      if (contactRow) {
-        sendAiMessage({
-          enrollmentId: enrollment.id,
-          contactId,
-          campaignId: campaign.id,
-          contact: contactRow,
-          isFollowUp: false,
-        }).catch((e) => console.error('AI first-touch failed:', e));
-      }
+    if (enrollment) {
+      void sendAiNurtureFirstTouchAfterEnroll({
+        enrollmentId: enrollment.id,
+        contactId,
+        campaignId: campaign.id,
+      });
     }
   }
 }

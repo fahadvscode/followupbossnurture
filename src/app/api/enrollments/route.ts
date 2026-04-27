@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
+import { sendAiNurtureFirstTouchAfterEnroll } from '@/lib/drip-engine';
 
 export async function POST(request: NextRequest) {
   const db = getServiceClient();
@@ -86,6 +87,12 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    void sendAiNurtureFirstTouchAfterEnroll({
+      enrollmentId: data.id,
+      contactId: contact_id,
+      campaignId: campaign_id,
+    });
 
     return NextResponse.json(data);
   }

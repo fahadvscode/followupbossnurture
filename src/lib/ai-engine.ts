@@ -230,7 +230,18 @@ export async function sendAiMessage(opts: {
   const now = new Date().toISOString();
 
   const { config, docs, media, campaign } = await loadAiCampaignContext(campaignId);
-  if (!config || !campaign) return { sent: false, escalated: false };
+  if (!campaign) {
+    console.warn('sendAiMessage: campaign not found', campaignId);
+    return { sent: false, escalated: false };
+  }
+  if (!config) {
+    console.warn(
+      'sendAiMessage: missing drip_ai_campaign_config for campaign',
+      campaignId,
+      '- run supabase/migration_ai_nurture.sql and create the campaign in AI Nurture UI'
+    );
+    return { sent: false, escalated: false };
+  }
 
   let convRow = await getOrCreateConversation(enrollmentId, contactId, campaignId);
 
