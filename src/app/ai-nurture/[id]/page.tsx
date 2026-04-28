@@ -16,11 +16,12 @@ const goalLabels = {
   visit_site: 'Drive to Site',
 };
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   active: 'bg-green-500/15 text-green-600',
   paused: 'bg-yellow-500/15 text-yellow-600',
   escalated: 'bg-red-500/15 text-red-600',
   goal_met: 'bg-blue-500/15 text-blue-600',
+  human_takeover: 'bg-blue-500/15 text-blue-600',
 };
 
 type Tab = 'overview' | 'knowledge' | 'media' | 'conversations' | 'settings';

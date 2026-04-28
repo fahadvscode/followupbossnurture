@@ -402,12 +402,15 @@ export async function sendAiMessage(opts: {
       channel: 'sms',
     });
 
+    const needsAttention = /\b(find out|get back|check on|look into|let me check|circle back)\b/i.test(aiText);
+
     await db
       .from('drip_ai_conversations')
       .update({
         last_outbound_at: now,
         follow_up_count: isFollowUp ? convRow.follow_up_count + 1 : convRow.follow_up_count,
         exchange_count: isFollowUp ? convRow.exchange_count : convRow.exchange_count + 1,
+        ...(needsAttention ? { needs_attention: true } : {}),
       })
       .eq('id', convRow.id);
 

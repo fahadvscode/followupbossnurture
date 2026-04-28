@@ -240,7 +240,7 @@ export interface StepPerformance {
 
 export type AiCampaignGoal = 'book_call' | 'long_nurture' | 'visit_site';
 export type AiEscalationAction = 'pause' | 'fub_task' | 'both';
-export type AiConversationStatus = 'active' | 'paused' | 'escalated' | 'goal_met';
+export type AiConversationStatus = 'active' | 'paused' | 'escalated' | 'goal_met' | 'human_takeover';
 export type AiMediaSendWith = 'first' | 'follow_up' | 'any' | 'manual';
 export type AiDocType = 'text' | 'file';
 
@@ -300,6 +300,8 @@ export interface AiConversation {
   goal_met_at: string | null;
   escalation_reason: string | null;
   conversation_summary: string | null;
+  needs_attention: boolean;
+  takeover_at: string | null;
   created_at: string;
   updated_at: string;
 }

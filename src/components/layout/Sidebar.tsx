@@ -16,6 +16,7 @@ import {
   Sparkles,
   Menu,
   X,
+  Inbox,
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { href: '/contacts', label: 'Contacts', icon: Users },
   { href: '/campaigns', label: 'Campaigns', icon: MessageSquare },
   { href: '/ai-nurture', label: 'AI Nurture', icon: Sparkles },
+  { href: '/inbox', label: 'Inbox', icon: Inbox, badge: true },
   { href: '/templates', label: 'Templates', icon: FileStack },
   { href: '/intelligence', label: 'Intelligence', icon: Brain },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
@@ -31,6 +33,22 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [inboxBadge, setInboxBadge] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchBadge = async () => {
+      try {
+        const res = await fetch('/api/ai-conversations?filter=needs_action');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) setInboxBadge(data.needs_action_count || 0);
+      } catch { /* silent */ }
+    };
+    fetchBadge();
+    const interval = setInterval(fetchBadge, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -101,7 +119,12 @@ export function Sidebar() {
                 )}
               >
                 <item.icon size={18} />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {'badge' in item && item.badge && inboxBadge > 0 && (
+                  <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                    {inboxBadge}
+                  </span>
+                )}
               </Link>
             );
           })}
