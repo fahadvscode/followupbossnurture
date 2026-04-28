@@ -182,6 +182,15 @@ export async function generateMessage(
     });
   }
 
+  // Role anchor — always injected last so the model never confuses itself with the lead.
+  // Without this, if the last outbound message is weird, the model can predict the lead's
+  // response and send that instead (character confusion / perspective bleed).
+  messages.push({
+    role: 'system',
+    content:
+      'CRITICAL: You are the AGENT sending the next SMS. You are NOT the lead. Do NOT write what the lead might say. Do NOT roleplay the lead\'s response. Write ONLY your own next reply as the agent. One short, natural SMS message.',
+  });
+
   const response = await client.chat.completions.create({
     model: 'deepseek-chat',
     messages,
