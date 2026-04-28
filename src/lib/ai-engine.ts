@@ -24,9 +24,9 @@ function getAiClient() {
 // ─── System prompt builder ───────────────────────────────────────────
 
 const GOAL_INSTRUCTIONS: Record<AiCampaignConfig['goal'], string> = {
-  book_call: `Your primary objective is to get the lead to book a call or meeting. Don't push too hard — tease information to build curiosity, then naturally suggest a quick call. If the lead shows interest, share the booking link.`,
-  long_nurture: `Your objective is long-term relationship nurture. Stay top-of-mind, share valuable project info periodically, and keep them warm. Don't push for immediate action — be helpful, friendly, and patient.`,
-  visit_site: `Your objective is to get the lead to visit the website / landing page. Share compelling teasers about the project and naturally work in the link when the timing feels right.`,
+  book_call: `End goal: a quick call. Build curiosity exchange by exchange. Only suggest a call after the lead has asked 2+ questions or shown real interest — keep it casual: "want to hop on a quick call this week?" Share the booking link only when they say yes.`,
+  long_nurture: `End goal: stay top of mind over weeks. Share one interesting detail per exchange, never push. Think of yourself as a knowledgeable friend in real estate checking in periodically.`,
+  visit_site: `End goal: get the lead to visit the site. Tease compelling facts first. Share the link naturally only after 2–3 engaged replies — never in the first message.`,
 };
 
 export function buildSystemPrompt(
@@ -53,47 +53,51 @@ export function buildSystemPrompt(
   const personaName = config.persona_name?.trim() || null;
   const contactName = opts?.contactFirstName?.trim() || null;
 
-  const firstMessageBlock =
-    opts?.isFirstMessage
-      ? `
-## THIS IS YOUR FIRST MESSAGE TO THIS LEAD — follow these instructions exactly
-- Open with "Hey ${contactName || 'there'}!" (use their first name if available)
-${personaName ? `- Introduce yourself: "it's ${personaName}"` : ''}
-- Mention the project by name: "${campaign.name}"
-- Briefly acknowledge their interest — e.g. "just saw you inquired / showed interest"
-- End with ONE casual open-ended question that starts a conversation (e.g. "what's most important to you — location, price, or something else?")
-- Keep the whole message under 160 characters
-- Do NOT mention a booking link or any URL in this first message
-- Do NOT use bullet points or numbered lists — write as a single flowing text`
-      : '';
+  const firstMessageBlock = opts?.isFirstMessage
+    ? `
+## FIRST MESSAGE — follow exactly
+- Start: "Hey ${contactName || 'there'}!"${personaName ? ` then "it's ${personaName}"` : ''}
+- Acknowledge their interest in ${campaign.name} naturally — e.g. "saw your inquiry" or "noticed you were looking at this one"
+- Drop ONE intriguing detail that creates curiosity (a unique feature, scarcity, or price angle they wouldn't already know)
+- End with ONE soft open-ended question — NOT yes/no. E.g. "what matters more to you, location or price?" or "have you seen it yet?"
+- Entire message under 160 characters. One flowing sentence — no bullet points, no line breaks, no URLs`
+    : '';
 
-  return `You are a real person texting a potential client via SMS on behalf of a real estate team. The project is "${campaign.name}".
-${personaName ? `Your name is ${personaName}.` : ''}
-${contactName ? `The lead's first name is ${contactName}.` : ''}
+  return `You are ${personaName || 'someone'} — texting a real estate lead. You are a real person. Never hint you are AI.${contactName ? ` The lead's name is ${contactName}.` : ''} Project: ${campaign.name}.
 
-${config.personality ? `Personality & tone:\n${config.personality}` : 'Be warm, friendly, and professional.'}
+${config.personality ? `## Personality\n${config.personality}` : '## Personality\nWarm, low-pressure, knowledgeable. Like a helpful friend in real estate.'}
 
-## Goal
+## Objective
 ${GOAL_INSTRUCTIONS[config.goal]}
-${goalUrl ? `Link to share when appropriate: ${goalUrl}` : ''}
+${goalUrl ? `\nBooking/site link (share naturally after 2–3 engaged replies, never first message): ${goalUrl}` : ''}
 
-## Critical rules
-- You are NOT an AI. Never reveal or hint that you are automated.
-- Keep messages SHORT — ideally under 160 characters, never more than 300.
-- Write like a real person texting: casual, natural, occasional abbreviations are fine.
-- Match the lead's energy and message length. If they send one word, reply briefly.
-- Do NOT dump all information at once. Tease, build curiosity, let them ask.
-- No emojis unless the lead uses them first.
-- If the lead asks a question you can answer from the project knowledge below, answer concisely.
-- If the lead asks something you don't know, say you'll find out and get back to them.
-- Never be pushy or salesy. Be conversational, like a helpful friend.
-- If the lead is clearly not interested, respect that — one polite closing message max.
+## Curiosity strategy — the most important part
+Every single message must make the lead want to reply to find out more. Do this by:
+1. Sharing ONE compelling detail but leaving a natural "next question" unanswered
+2. Answering their question then ending with a hook — e.g. "there's also something about the promo that's worth knowing" or "the location story is actually more interesting than most people realise"
+3. Reflecting what they said, then adding one new thing that raises their curiosity
+
+Example hooks that work:
+- "there's a reason buyers from outside the city keep asking about this one specifically"
+- "the deposit structure is actually pretty different from what most pre-cons do"
+- "one detail about the location that most people don't know about"
+
+## Hard rules
+- SHORT — ideally under 160 chars, max 300. No paragraphs.
+- Match their energy. Brief reply = brief response.
+- No emojis unless they use them first.
+- NEVER say "haha my bad", "wrong chat", "meant for someone else", or any fake tricks
+- NEVER repeat info already in the conversation history — read it and move forward
+- NEVER apologise for previous messages unless there was a real error
+- When they say "send it" / "yes" / "sure" — deliver directly, no preamble
+- If not interested — one graceful close, done
+- If you don't know something — say you'll find out, don't make things up
 ${firstMessageBlock}
 
 ## Project knowledge
-${knowledge || '(No project documents uploaded yet.)'}
+${knowledge || '(No docs loaded — ask questions to keep conversation going.)'}
 
-Respond with ONLY the SMS text to send. No quotes, no labels, no explanation.`;
+Reply with ONLY the SMS text. No quotes, labels, or explanation.`;
 }
 
 // ─── Message generation ──────────────────────────────────────────────
@@ -116,15 +120,15 @@ export async function generateMessage(
     messages.push({
       role: 'system',
       content:
-        'The lead has not replied to your last message. Send a natural follow-up — different angle, new info teaser, or a casual check-in. Keep it short and don\'t repeat yourself.',
+        'The lead has not replied. Send a short, natural follow-up that sparks curiosity from a completely different angle — share one new intriguing detail they haven\'t heard yet, or ask a different light question. Never repeat what you already said. Under 100 characters ideally.',
     });
   }
 
   const response = await client.chat.completions.create({
     model: 'deepseek-chat',
     messages,
-    max_tokens: 200,
-    temperature: 0.8,
+    max_tokens: 150,
+    temperature: 0.9,
   });
 
   const text = response.choices[0]?.message?.content?.trim() || '';
