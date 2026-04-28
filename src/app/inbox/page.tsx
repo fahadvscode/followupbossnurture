@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { AlertCircle, Bot, UserCheck, Activity, Inbox, Clock } from 'lucide-react';
+import { AlertCircle, Bot, UserCheck, Activity, Inbox, Clock, RefreshCw } from 'lucide-react';
 
 type Filter = 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
@@ -57,6 +57,19 @@ export default function InboxPage() {
   const [conversations, setConversations] = useState<ConvRow[]>([]);
   const [needsActionCount, setNeedsActionCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [restarting, setRestarting] = useState<string | null>(null);
+
+  const restartConv = async (convId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setRestarting(convId);
+    await fetch(`/api/ai-conversations/${convId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'restart' }),
+    });
+    setRestarting(null);
+    load();
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -176,11 +189,21 @@ export default function InboxPage() {
                     <p className="text-xs text-red-600 mt-0.5 truncate">⚠ {conv.escalation_reason}</p>
                   )}
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs text-muted flex items-center gap-1 justify-end">
+                <div className="shrink-0 text-right flex flex-col items-end gap-2">
+                  <p className="text-xs text-muted flex items-center gap-1">
                     <Clock size={11} />
                     {timeAgo(lastActivity)}
                   </p>
+                  {(conv.status === 'escalated' || conv.status === 'paused' || conv.status === 'human_takeover') && (
+                    <button
+                      onClick={(e) => restartConv(conv.id, e)}
+                      disabled={restarting === conv.id}
+                      className="flex items-center gap-1 text-[10px] font-medium text-accent border border-accent/30 rounded-md px-2 py-1 hover:bg-accent/10 disabled:opacity-50"
+                    >
+                      <RefreshCw size={10} />
+                      {restarting === conv.id ? '...' : 'Restart'}
+                    </button>
+                  )}
                 </div>
               </Link>
             );

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Send, UserCheck, Bot, AlertCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Send, UserCheck, Bot, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConversationThread } from '@/components/ai-nurture/ConversationThread';
 import type { DripMessage, AiConversation } from '@/types';
@@ -84,6 +84,7 @@ export default function ConversationDetailPage() {
 
   const isHumanTakeover = conversation?.status === 'human_takeover';
   const isEscalated = conversation?.status === 'escalated';
+  const isEnded = isEscalated || conversation?.status === 'goal_met' || conversation?.status === 'paused';
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -132,8 +133,17 @@ export default function ConversationDetailPage() {
 
       {/* Escalation banner */}
       {(isEscalated || conversation?.escalation_reason) && (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          <strong>Escalated:</strong> {conversation?.escalation_reason || 'Needs human review'}
+        <div className="flex items-center justify-between rounded-lg border border-red-300 bg-red-50 p-3">
+          <p className="text-sm text-red-700">
+            <strong>Escalated:</strong> {conversation?.escalation_reason || 'Needs human review'}
+          </p>
+          <button
+            onClick={() => convAction('restart')}
+            disabled={sending}
+            className="flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-100 disabled:opacity-50 shrink-0 ml-3"
+          >
+            <RefreshCw size={12} /> Restart AI
+          </button>
         </div>
       )}
 
@@ -164,6 +174,23 @@ export default function ConversationDetailPage() {
           <ConversationThread messages={messages} contactName={contactName} />
         )}
       </div>
+
+      {/* Restart button when AI conversation ended (paused/goal_met) */}
+      {isEnded && !isEscalated && (
+        <div className="flex items-center justify-between rounded-lg border border-border bg-card p-3">
+          <p className="text-sm text-muted">
+            AI conversation ended ({conversation?.status.replace(/_/g, ' ')}).
+            Restart to let AI engage again from the beginning.
+          </p>
+          <button
+            onClick={() => convAction('restart')}
+            disabled={sending}
+            className="flex items-center gap-1.5 text-xs font-medium text-accent border border-accent/30 rounded-lg px-3 py-1.5 hover:bg-accent/10 disabled:opacity-50 shrink-0 ml-3"
+          >
+            <RefreshCw size={12} /> Restart AI
+          </button>
+        </div>
+      )}
 
       {/* Reply box — always visible */}
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">

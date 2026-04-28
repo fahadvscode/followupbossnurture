@@ -57,6 +57,31 @@ export async function POST(request: NextRequest, { params }: Params) {
     return Response.json({ ok: true, status: 'active' });
   }
 
+  // ── Restart conversation (reset escalation / max-exchange limit) ─────────
+  if (action === 'restart') {
+    await db
+      .from('drip_ai_conversations')
+      .update({
+        status: 'active',
+        exchange_count: 0,
+        follow_up_count: 0,
+        needs_attention: false,
+        escalation_reason: null,
+        takeover_at: null,
+        last_outbound_at: null,
+        last_inbound_at: null,
+      })
+      .eq('id', id);
+
+    await db
+      .from('drip_enrollments')
+      .update({ status: 'active', paused_at: null, completed_at: null })
+      .eq('id', conv.enrollment_id)
+      .in('status', ['paused', 'completed', 'opted_out']);
+
+    return Response.json({ ok: true, status: 'active' });
+  }
+
   // ── Dismiss needs_attention flag ──────────────────────────────────
   if (action === 'dismiss_attention') {
     await db
