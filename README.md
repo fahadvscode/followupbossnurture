@@ -95,11 +95,8 @@ After deploying, configure:
   - Configurable follow-up cadence and max exchanges before escalation
   - Conversation thread view with full message history
 
-### 6. AI Nurture — Supabase Storage (optional, for file uploads)
+### 6. AI Nurture — Supabase Storage
 
-If you want to upload PDF/DOCX knowledge docs or MMS banners via file upload instead of pasting URLs:
-
-1. In Supabase Dashboard → Storage, create two buckets:
-   - `ai-nurture-docs` (private) — for knowledge documents
-   - `ai-nurture-media` (public) — for MMS images (Twilio needs a public URL)
-2. The current version accepts pasted text and direct URLs; file upload with Supabase Storage is ready to wire up when needed.
+- **MMS file uploads (Media tab):** Run `supabase/migration_storage_ai_nurture_media.sql` in the Supabase SQL Editor to create the public `ai-nurture-media` bucket, **or** create a public bucket with that name in Storage → New bucket. Otherwise uploads return 503 “Bucket not found”.
+- **Use an existing bucket instead:** set `AI_NURTURE_MEDIA_BUCKET=your-bucket-name` in Vercel and `.env.local` (must be public so Twilio can fetch the image).
+- **Knowledge file uploads:** create `ai-nurture-docs` (private) if you use document uploads; you can also paste text or image URLs.

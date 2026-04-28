@@ -1,8 +1,25 @@
 import { NextRequest } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 
-const BUCKET = 'ai-nurture-media';
+function mediaBucketName(): string {
+  return (process.env.AI_NURTURE_MEDIA_BUCKET || 'ai-nurture-media').trim();
+}
+
 const SUPPORTED_MIME = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+
+function uploadErrorResponse(message: string) {
+  const isBucket =
+    /bucket not found|no such|does not exist|not exist/i.test(message) ||
+    message === 'The resource was not found';
+  return Response.json(
+    {
+      error: isBucket
+        ? `Storage bucket "${mediaBucketName()}" does not exist. In Supabase → SQL, run the SQL in supabase/migration_storage_ai_nurture_media.sql (or create a public bucket with that name). Or set AI_NURTURE_MEDIA_BUCKET to an existing public bucket (e.g. property-images) in Vercel env.`
+        : message,
+    },
+    { status: isBucket ? 503 : 500 }
+  );
+}
 
 export async function GET(
   _request: NextRequest,
@@ -28,6 +45,7 @@ export async function POST(
   const contentType = request.headers.get('content-type') || '';
 
   if (contentType.includes('multipart/form-data')) {
+    const bucket = mediaBucketName();
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const title = (formData.get('title') as string) || 'Banner';
@@ -48,12 +66,12 @@ export async function POST(
 
     const arrayBuffer = await file.arrayBuffer();
     const { error: uploadError } = await db.storage
-      .from(BUCKET)
+      .from(bucket)
       .upload(path, arrayBuffer, { contentType: mime, upsert: false });
 
-    if (uploadError) return Response.json({ error: uploadError.message }, { status: 500 });
+    if (uploadError) return uploadErrorResponse(uploadError.message);
 
-    const { data: urlData } = db.storage.from(BUCKET).getPublicUrl(path);
+    const { data: urlData } = db.storage.from(bucket).getPublicUrl(path);
     const publicUrl = urlData.publicUrl;
 
     const { data, error } = await db
