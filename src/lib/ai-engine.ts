@@ -173,12 +173,17 @@ export function shouldEscalate(
 
 // ─── Media selection ─────────────────────────────────────────────────
 
+// Twilio MMS only supports JPEG, PNG, and GIF — webp/svg/etc will be rejected
+const TWILIO_MMS_SUPPORTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+
 export function selectMedia(
   mediaAssets: AiMedia[],
   messageType: 'first' | 'follow_up'
 ): AiMedia | null {
   const eligible = mediaAssets.filter(
-    (m) => m.send_with === 'any' || m.send_with === messageType
+    (m) =>
+      (m.send_with === 'any' || m.send_with === messageType) &&
+      TWILIO_MMS_SUPPORTED.includes((m.mime_type || '').toLowerCase())
   );
   return eligible.length > 0 ? eligible[0] : null;
 }
