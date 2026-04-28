@@ -23,17 +23,68 @@ function getAiClient() {
 
 // ─── System prompt builder ───────────────────────────────────────────
 
-const GOAL_INSTRUCTIONS: Record<AiCampaignConfig['goal'], string> = {
-  book_call: `End goal: a quick call. Build curiosity exchange by exchange. Only suggest a call after the lead has asked 2+ questions or shown real interest — keep it casual: "want to hop on a quick call this week?" Share the booking link only when they say yes.`,
-  long_nurture: `End goal: stay top of mind over weeks. Share one interesting detail per exchange, never push. Think of yourself as a knowledgeable friend in real estate checking in periodically.`,
-  visit_site: `End goal: get the lead to visit the site. Tease compelling facts first. Share the link naturally only after 2–3 engaged replies — never in the first message.`,
-};
+// ─── Conversation stage rules ─────────────────────────────────────────
+// Stage 1 (exchanges 0-1): Human connection only. No product info, no pitching.
+// Stage 2 (exchanges 2-3): One detail at a time. Tease, don't dump.
+// Stage 3 (exchanges 4+): Value + soft CTA. Share link only when they ask or express clear intent.
+
+function getStageInstructions(
+  exchangeCount: number,
+  goal: AiCampaignConfig['goal'],
+  goalUrl: string | null,
+  isFirstMessage: boolean
+): string {
+  if (isFirstMessage) return ''; // handled separately
+
+  if (exchangeCount <= 1) {
+    return `## Stage: EARLY — human connection only
+You are in the very first exchange. DO NOT mention prices, specs, sizes, promos, or any product details yet.
+Focus entirely on: acknowledging what they said, showing you're listening, and asking ONE light open-ended question.
+Max 80 characters. Sound like a real person checking in, not a salesperson.`;
+  }
+
+  if (exchangeCount <= 3) {
+    return `## Stage: BUILDING — one detail at a time
+You can now share ONE specific, interesting detail from the project knowledge.
+Pick the detail most relevant to what the lead has shown interest in.
+End with a hook that makes them curious about the next detail — but don't give it yet.
+Max 150 characters.
+${goal === 'book_call' ? 'Do NOT suggest a call yet.' : ''}
+${goalUrl ? `Do NOT share the link yet.` : ''}`;
+  }
+
+  return `## Stage: WARM — genuine interest shown
+The lead is engaged. You can now go slightly deeper on what they've asked about.
+${goal === 'book_call' ? `If they've asked 2+ specific questions or said something like "interested" / "tell me more", you can casually mention: "want to hop on a quick call? easier to go through the details" — and only if they say yes, share: ${goalUrl}` : ''}
+${goal === 'visit_site' && goalUrl ? `You can now share the link naturally if it fits: ${goalUrl}` : ''}
+Max 200 characters.`;
+}
+
+// ─── Skepticism / pushback detector ─────────────────────────────────
+const SKEPTICISM_PATTERNS = [
+  /you('re| are) (selling|pitching|promoting)/i,
+  /sounds? like (a )?sale(s|sman|sperson|sy)?/i,
+  /what('s| is) (going on|this (about)?|happening)/i,
+  /who (is this|are you|sent this)/i,
+  /is this (a bot|automated|spam|ai)/i,
+  /stop (selling|pitching|texting|messaging)/i,
+  /not interested/i,
+];
+
+export function detectSkepticism(text: string): boolean {
+  return SKEPTICISM_PATTERNS.some((p) => p.test(text));
+}
 
 export function buildSystemPrompt(
   config: AiCampaignConfig,
   campaign: DripCampaign,
   docs: AiKnowledgeDoc[],
-  opts?: { contactFirstName?: string; isFirstMessage?: boolean }
+  opts?: {
+    contactFirstName?: string;
+    isFirstMessage?: boolean;
+    exchangeCount?: number;
+    leadIsSkeptical?: boolean;
+  }
 ): string {
   const knowledge = docs
     .map((d) => {
@@ -52,52 +103,59 @@ export function buildSystemPrompt(
 
   const personaName = config.persona_name?.trim() || null;
   const contactName = opts?.contactFirstName?.trim() || null;
+  const exchangeCount = opts?.exchangeCount ?? 0;
+  const isFirstMessage = opts?.isFirstMessage ?? false;
+  const leadIsSkeptical = opts?.leadIsSkeptical ?? false;
 
-  const firstMessageBlock = opts?.isFirstMessage
+  const firstMessageBlock = isFirstMessage
     ? `
-## FIRST MESSAGE — follow exactly
-- Start: "Hey ${contactName || 'there'}!"${personaName ? ` then "it's ${personaName}"` : ''}
-- Acknowledge their interest in ${campaign.name} naturally — e.g. "saw your inquiry" or "noticed you were looking at this one"
-- Drop ONE intriguing detail that creates curiosity (a unique feature, scarcity, or price angle they wouldn't already know)
-- End with ONE soft open-ended question — NOT yes/no. E.g. "what matters more to you, location or price?" or "have you seen it yet?"
-- Entire message under 160 characters. One flowing sentence — no bullet points, no line breaks, no URLs`
+## THIS IS YOUR VERY FIRST MESSAGE — follow exactly, character by character
+1. Greet: "Hey ${contactName || 'there'}!"${personaName ? ` + "it's ${personaName} —"` : ''}
+2. One natural acknowledgement: "saw you were looking at ${campaign.name}" or "noticed your inquiry came in"
+3. One single intriguing fact that raises a question — something they wouldn't already know. Not a price dump. A curiosity hook.
+4. End with ONE soft open-ended question. NOT yes/no. E.g. "what matters most — location, size, or price?" or "have you heard much about it yet?"
+Total message: under 160 characters. One flowing sentence. No bullet points. No URLs. No emojis.`
     : '';
 
-  return `You are ${personaName || 'someone'} — texting a real estate lead. You are a real person. Never hint you are AI.${contactName ? ` The lead's name is ${contactName}.` : ''} Project: ${campaign.name}.
+  const skepticismBlock = leadIsSkeptical
+    ? `
+## LEAD IS PUSHING BACK — respond with this approach only
+The lead just said something like "you're selling" or "what's going on" or "who is this". They feel sold to. 
+Your ONLY job right now is to disarm this completely. Do NOT pitch anything.
+Say something honest and human like: "fair enough, my bad — just thought it might be worth a look. no pressure at all."
+Or: "you're right, I'll keep it low key. just reached out because it seemed like your kind of thing."
+Under 80 characters. Zero sales. Make them feel like you're a real person who gets it.`
+    : '';
 
-${config.personality ? `## Personality\n${config.personality}` : '## Personality\nWarm, low-pressure, knowledgeable. Like a helpful friend in real estate.'}
+  const stageBlock =
+    !isFirstMessage && !leadIsSkeptical
+      ? getStageInstructions(exchangeCount, config.goal, goalUrl || null, isFirstMessage)
+      : '';
 
-## Objective
-${GOAL_INSTRUCTIONS[config.goal]}
-${goalUrl ? `\nBooking/site link (share naturally after 2–3 engaged replies, never first message): ${goalUrl}` : ''}
+  return `You are ${personaName || 'a person'} texting a real estate lead as a real human. Never reveal or hint you are AI.${contactName ? ` Lead's name: ${contactName}.` : ''} Project: ${campaign.name}.
 
-## Curiosity strategy — the most important part
-Every single message must make the lead want to reply to find out more. Do this by:
-1. Sharing ONE compelling detail but leaving a natural "next question" unanswered
-2. Answering their question then ending with a hook — e.g. "there's also something about the promo that's worth knowing" or "the location story is actually more interesting than most people realise"
-3. Reflecting what they said, then adding one new thing that raises their curiosity
+## Your personality (STYLE GUIDE — defines HOW you write, NOT scripts to copy)
+⚠️ IMPORTANT: The personality section below shows your TONE and WORD CHOICE only. The example phrases and example conversations in it are illustrations of style — do NOT copy them verbatim or use them as templates. Write completely fresh, natural responses every time.
+${config.personality || 'Warm, low-pressure, knowledgeable. Like a helpful friend in real estate.'}
 
-Example hooks that work:
-- "there's a reason buyers from outside the city keep asking about this one specifically"
-- "the deposit structure is actually pretty different from what most pre-cons do"
-- "one detail about the location that most people don't know about"
-
-## Hard rules
-- SHORT — ideally under 160 chars, max 300. No paragraphs.
-- Match their energy. Brief reply = brief response.
-- No emojis unless they use them first.
-- NEVER say "haha my bad", "wrong chat", "meant for someone else", or any fake tricks
-- NEVER repeat info already in the conversation history — read it and move forward
-- NEVER apologise for previous messages unless there was a real error
-- When they say "send it" / "yes" / "sure" — deliver directly, no preamble
-- If not interested — one graceful close, done
-- If you don't know something — say you'll find out, don't make things up
+## Absolute rules (override everything else)
+- Messages are SHORT. Ideally under 100 characters. Never more than 200 unless lead wrote a lot.
+- ONE idea per message. Never list multiple facts, prices, sizes, or specs in the same message.
+- Match their energy exactly. One-word reply = one short sentence back.
+- No bullet points. No numbered lists. No line breaks inside a message. Ever.
+- No emojis unless the lead uses them first.
+- NEVER say "haha my bad", "wrong chat", "meant for someone else", or any fake gimmick.
+- NEVER repeat information from earlier in the conversation. Read history. Move forward.
+- When they say "yes" / "sure" / "send it" — deliver immediately, no windup.
+- If not interested — one graceful "no problem at all, feel free to reach out anytime" and stop.
 ${firstMessageBlock}
+${skepticismBlock}
+${stageBlock}
 
-## Project knowledge
-${knowledge || '(No docs loaded — ask questions to keep conversation going.)'}
+## Project knowledge (use selectively — one fact at a time, only when relevant)
+${knowledge || '(No docs loaded.)'}
 
-Reply with ONLY the SMS text. No quotes, labels, or explanation.`;
+Reply with ONLY the SMS text. No quotes, labels, explanation, or formatting.`;
 }
 
 // ─── Message generation ──────────────────────────────────────────────
@@ -127,8 +185,8 @@ export async function generateMessage(
   const response = await client.chat.completions.create({
     model: 'deepseek-chat',
     messages,
-    max_tokens: 150,
-    temperature: 0.9,
+    max_tokens: 80,
+    temperature: 0.85,
   });
 
   const text = response.choices[0]?.message?.content?.trim() || '';
@@ -289,6 +347,7 @@ export async function sendAiMessage(opts: {
   const systemPrompt = buildSystemPrompt(config, campaign, docs, {
     contactFirstName: contact.first_name || undefined,
     isFirstMessage,
+    exchangeCount: convRow.exchange_count,
   });
   const aiText = await generateMessage(history, systemPrompt, isFollowUp);
 
@@ -393,9 +452,12 @@ export async function handleAiReply(opts: {
   if (!phone) return { replied: false, escalated: false };
 
   const history = await loadConversationHistory(enrollmentId);
+  const leadIsSkeptical = detectSkepticism(inboundBody);
   const systemPrompt = buildSystemPrompt(config, campaign, docs, {
     contactFirstName: contact.first_name || undefined,
     isFirstMessage: false,
+    exchangeCount: convRow.exchange_count,
+    leadIsSkeptical,
   });
   const aiText = await generateMessage(history, systemPrompt, false);
 
