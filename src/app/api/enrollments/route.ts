@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   if (action === 'restart_enrollment' && enrollment_id) {
     const { data: en, error: fetchErr } = await db
       .from('drip_enrollments')
-      .select('id, status')
+      .select('id, status, contact_id, campaign_id, campaign:drip_campaigns(campaign_type)')
       .eq('id', enrollment_id)
       .single();
 
@@ -57,6 +57,16 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    const campRow = en.campaign as { campaign_type?: string } | null;
+    if (campRow?.campaign_type === 'ai_nurture') {
+      void sendAiNurtureFirstTouchAfterEnroll({
+        enrollmentId: enrollment_id,
+        contactId: en.contact_id,
+        campaignId: en.campaign_id,
+      });
+    }
+
     return NextResponse.json({ ok: true });
   }
 
