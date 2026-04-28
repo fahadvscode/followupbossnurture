@@ -250,6 +250,7 @@ export interface AiCampaignConfig {
   goal: AiCampaignGoal;
   booking_url: string | null;
   landing_url: string | null;
+  persona_name: string | null;
   personality: string;
   max_exchanges: number;
   follow_up_delay_minutes: number;

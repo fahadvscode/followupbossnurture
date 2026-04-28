@@ -12,6 +12,7 @@ interface FormData {
   goal: AiCampaignGoal;
   booking_url: string;
   landing_url: string;
+  persona_name: string;
   personality: string;
   max_exchanges: number;
   follow_up_delay_minutes: number;
@@ -24,7 +25,7 @@ interface FormData {
 }
 
 interface Props {
-  initial?: Partial<FormData> & { id?: string };
+  initial?: Partial<FormData> & { id?: string; persona_name?: string | null };
   isEdit?: boolean;
 }
 
@@ -39,6 +40,7 @@ export function AiCampaignForm({ initial, isEdit }: Props) {
     goal: initial?.goal || 'book_call',
     booking_url: initial?.booking_url || '',
     landing_url: initial?.landing_url || '',
+    persona_name: initial?.persona_name || '',
     personality: initial?.personality || '',
     max_exchanges: initial?.max_exchanges ?? 10,
     follow_up_delay_minutes: initial?.follow_up_delay_minutes ?? 120,
@@ -151,6 +153,21 @@ export function AiCampaignForm({ initial, isEdit }: Props) {
           />
         </div>
       )}
+
+      <div>
+        <label className="block text-sm font-medium text-foreground mb-1">
+          AI Persona Name
+        </label>
+        <input
+          value={form.persona_name}
+          onChange={(e) => set('persona_name', e.target.value)}
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          placeholder="e.g. Jordan (the name the AI will use when texting leads)"
+        />
+        <p className="text-xs text-muted mt-1">
+          Used in the first message: &quot;Hey [Lead], it&apos;s Jordan!&quot;
+        </p>
+      </div>
 
       <div>
         <label className="block text-sm font-medium text-foreground mb-1">

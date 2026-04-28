@@ -32,7 +32,8 @@ const GOAL_INSTRUCTIONS: Record<AiCampaignConfig['goal'], string> = {
 export function buildSystemPrompt(
   config: AiCampaignConfig,
   campaign: DripCampaign,
-  docs: AiKnowledgeDoc[]
+  docs: AiKnowledgeDoc[],
+  opts?: { contactFirstName?: string; isFirstMessage?: boolean }
 ): string {
   const knowledge = docs
     .map((d) => {
@@ -49,9 +50,28 @@ export function buildSystemPrompt(
         ? config.landing_url
         : null;
 
-  return `You are a real person texting a potential client via SMS on behalf of a real estate team. The campaign is "${campaign.name}".
+  const personaName = config.persona_name?.trim() || null;
+  const contactName = opts?.contactFirstName?.trim() || null;
 
-${config.personality ? `Personality & tone: ${config.personality}` : 'Be warm, friendly, and professional.'}
+  const firstMessageBlock =
+    opts?.isFirstMessage
+      ? `
+## THIS IS YOUR FIRST MESSAGE TO THIS LEAD — follow these instructions exactly
+- Open with "Hey ${contactName || 'there'}!" (use their first name if available)
+${personaName ? `- Introduce yourself: "it's ${personaName}"` : ''}
+- Mention the project by name: "${campaign.name}"
+- Briefly acknowledge their interest — e.g. "just saw you inquired / showed interest"
+- End with ONE casual open-ended question that starts a conversation (e.g. "what's most important to you — location, price, or something else?")
+- Keep the whole message under 160 characters
+- Do NOT mention a booking link or any URL in this first message
+- Do NOT use bullet points or numbered lists — write as a single flowing text`
+      : '';
+
+  return `You are a real person texting a potential client via SMS on behalf of a real estate team. The project is "${campaign.name}".
+${personaName ? `Your name is ${personaName}.` : ''}
+${contactName ? `The lead's first name is ${contactName}.` : ''}
+
+${config.personality ? `Personality & tone:\n${config.personality}` : 'Be warm, friendly, and professional.'}
 
 ## Goal
 ${GOAL_INSTRUCTIONS[config.goal]}
@@ -68,6 +88,7 @@ ${goalUrl ? `Link to share when appropriate: ${goalUrl}` : ''}
 - If the lead asks something you don't know, say you'll find out and get back to them.
 - Never be pushy or salesy. Be conversational, like a helpful friend.
 - If the lead is clearly not interested, respect that — one polite closing message max.
+${firstMessageBlock}
 
 ## Project knowledge
 ${knowledge || '(No project documents uploaded yet.)'}
@@ -255,7 +276,11 @@ export async function sendAiMessage(opts: {
   if (!phone) return { sent: false, escalated: false };
 
   const history = await loadConversationHistory(enrollmentId);
-  const systemPrompt = buildSystemPrompt(config, campaign, docs);
+  const isFirstMessage = !isFollowUp && history.length === 0;
+  const systemPrompt = buildSystemPrompt(config, campaign, docs, {
+    contactFirstName: contact.first_name || undefined,
+    isFirstMessage,
+  });
   const aiText = await generateMessage(history, systemPrompt, isFollowUp);
 
   if (!aiText) return { sent: false, escalated: false };
@@ -359,7 +384,10 @@ export async function handleAiReply(opts: {
   if (!phone) return { replied: false, escalated: false };
 
   const history = await loadConversationHistory(enrollmentId);
-  const systemPrompt = buildSystemPrompt(config, campaign, docs);
+  const systemPrompt = buildSystemPrompt(config, campaign, docs, {
+    contactFirstName: contact.first_name || undefined,
+    isFirstMessage: false,
+  });
   const aiText = await generateMessage(history, systemPrompt, false);
 
   if (!aiText) return { replied: false, escalated: false };
