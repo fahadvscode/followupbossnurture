@@ -252,6 +252,8 @@ export interface AiCampaignConfig {
   landing_url: string | null;
   persona_name: string | null;
   personality: string;
+  first_message_override: string | null;
+  office_address: string | null;
   max_exchanges: number;
   follow_up_delay_minutes: number;
   max_follow_ups: number;

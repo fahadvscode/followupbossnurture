@@ -240,6 +240,8 @@ export default function AiCampaignDetailPage() {
               landing_url: config.landing_url || '',
               persona_name: config.persona_name || '',
               personality: config.personality,
+              first_message_override: config.first_message_override || '',
+              office_address: config.office_address || '',
               max_exchanges: config.max_exchanges,
               follow_up_delay_minutes: config.follow_up_delay_minutes,
               max_follow_ups: config.max_follow_ups,

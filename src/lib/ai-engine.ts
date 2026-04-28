@@ -134,32 +134,38 @@ Under 80 characters. Zero sales. Make them feel like you're a real person who ge
 
   return `You are ${personaName || 'a person'} texting a real estate lead as a real human. Never reveal or hint you are AI.${contactName ? ` Lead's name: ${contactName}.` : ''} Project: ${campaign.name}.
 
-## Your personality (STYLE GUIDE — tone and word choice ONLY, not scripts)
-⚠️ The personality below shows HOW you write — do NOT copy any example phrases verbatim. Generate completely fresh responses every time.
+## Your agent instructions (tone, style, and any special rules for THIS campaign)
+⚠️ This defines HOW you write — do NOT copy phrases verbatim. Generate completely fresh responses every time.
 ${config.personality || 'Warm, low-pressure, knowledgeable. Like a helpful friend in real estate.'}
+${config.office_address ? `\nYour office address for this campaign: ${config.office_address}. Use this exact address if the lead asks about visiting or meeting in person.` : ''}
 
 ## CRITICAL — answer what the lead asked
 READ the last message from the lead carefully. If they asked a specific question:
-1. Answer it FIRST using ONLY facts from the Project Knowledge section below.
+1. Answer it FIRST using ONLY facts from the Project Knowledge section or the office address above.
 2. Keep the answer short — one fact, one sentence.
 3. You may end with a light hook, but only after answering their question.
 If you cannot find the answer in the Project Knowledge — say exactly: "let me check on that and get back to you" — nothing else.
 
+## CRITICAL — walk-in / in-person visit requests
+If the lead asks to visit the builder's site, sales office, model home, do a walk-in, or meet in person:
+- DO NOT try to give directions or schedule it yourself.
+- Respond with ONE sentence: "I'll check with the team and get back to you on that — what's the best time to reach you?" then STOP.
+- This triggers an admin alert automatically.
+
 ## CRITICAL — never make up facts
-NEVER invent or assume ANY of the following that are not explicitly written in the Project Knowledge section:
-- Addresses, office locations, unit numbers
+NEVER invent or assume ANY of the following that are not explicitly in the Project Knowledge or office address above:
+- Addresses (use the office address field above if provided, otherwise say you'll find out)
 - Phone numbers, email addresses
 - Floor plan details not mentioned
 - Prices, fees, or deposit amounts not specified
-- Builder names, completion dates, or any numbers
-If it's not in the Project Knowledge, you don't know it. Say you'll find out.
+- Builder names, completion dates, or any numbers not in the docs
+If it's not there, you don't know it. Say you'll find out.
 
 ## CRITICAL — out-of-scope questions (other projects, unrelated topics)
 If the lead asks about OTHER projects, other locations, or anything unrelated to ${campaign.name}:
-- Do NOT pretend to know about them.
-- Do NOT ignore the question.
-- Acknowledge it briefly and redirect: e.g. "i only work with ${campaign.name} right now — but honestly it checks a lot of boxes. [one quick compelling fact]. worth a look?"
-- Keep it natural, one sentence. Never list other projects. Never make them up.
+- Do NOT pretend to know about them. Never make them up.
+- Acknowledge briefly and redirect: "i only work with ${campaign.name} right now — but honestly it's worth a look. [one compelling fact]. want the details?"
+- One sentence. Natural. No lists.
 
 ## Absolute rules
 - Messages SHORT — under 120 characters. Never more than 200.
@@ -234,6 +240,20 @@ const SENSITIVE_PATTERNS = [
   /\b(lawsuit|lawyer|attorney|sue|legal|report)\b/i,
   /\b(do not disturb|dnd|harassment|harassing)\b/i,
 ];
+
+// Walk-in / in-person patterns — not truly sensitive, but need human attention
+const WALKIN_PATTERNS = [
+  /\b(walk.?in|drop.?in|come\s+in|stop\s+by|swing\s+by)\b/i,
+  /\b(visit\s+(the\s+)?(office|sales\s+office|site|model\s+home|builder|showroom))\b/i,
+  /\b(meet\s+(in\s+person|face\s+to\s+face|at\s+the\s+office|at\s+your\s+office))\b/i,
+  /\b(can\s+i\s+(come|go|visit|drop|meet))\b/i,
+  /\b(builder'?s?\s+office|sales\s+center|presentation\s+center)\b/i,
+  /\b(in.?person\s+meeting|physical\s+(meeting|visit|showing))\b/i,
+];
+
+export function detectWalkIn(text: string): boolean {
+  return WALKIN_PATTERNS.some((p) => p.test(text));
+}
 
 export function detectSensitiveReply(text: string): {
   isSensitive: boolean;
@@ -388,12 +408,24 @@ export async function sendAiMessage(opts: {
 
   const history = await loadConversationHistory(enrollmentId);
   const isFirstMessage = !isFollowUp && history.length === 0;
-  const systemPrompt = buildSystemPrompt(config, campaign, docs, {
-    contactFirstName: contact.first_name || undefined,
-    isFirstMessage,
-    exchangeCount: convRow.exchange_count,
-  });
-  const aiText = await generateMessage(history, systemPrompt, isFollowUp);
+
+  // Use the campaign's custom first message if provided — skip AI generation entirely
+  let aiText: string | null = null;
+  if (isFirstMessage && config.first_message_override?.trim()) {
+    // Personalise by replacing {{name}} placeholder if present
+    const firstName = contact.first_name?.trim() || '';
+    aiText = config.first_message_override
+      .trim()
+      .replace(/\{\{name\}\}/gi, firstName)
+      .replace(/\{\{first_name\}\}/gi, firstName);
+  } else {
+    const systemPrompt = buildSystemPrompt(config, campaign, docs, {
+      contactFirstName: contact.first_name || undefined,
+      isFirstMessage,
+      exchangeCount: convRow.exchange_count,
+    });
+    aiText = await generateMessage(history, systemPrompt, isFollowUp);
+  }
 
   if (!aiText) return { sent: false, escalated: false };
 
@@ -501,6 +533,32 @@ export async function handleAiReply(opts: {
 
   const phone = normalizePhone(contact.phone);
   if (!phone) return { replied: false, escalated: false };
+
+  // Walk-in / in-person request — reply with handoff message, flag for admin
+  const isWalkIn = detectWalkIn(inboundBody);
+  if (isWalkIn) {
+    const walkInReply = "I'll check with the team and get back to you on that — what's the best time to reach you?";
+    try {
+      const fromNumber = campaign.twilio_from_number || undefined;
+      const result = await sendSMS(phone, walkInReply, fromNumber);
+      await db.from('drip_messages').insert({
+        enrollment_id: enrollmentId,
+        contact_id: contactId,
+        campaign_id: campaignId,
+        direction: 'outbound',
+        body: walkInReply,
+        twilio_sid: result.sid,
+        status: result.status === 'queued' ? 'queued' : 'sent',
+        sent_at: now,
+        channel: 'sms',
+      });
+    } catch {}
+    await db
+      .from('drip_ai_conversations')
+      .update({ needs_attention: true, last_outbound_at: now })
+      .eq('id', convRow.id);
+    return { replied: true, escalated: false };
+  }
 
   const history = await loadConversationHistory(enrollmentId);
   const leadIsSkeptical = detectSkepticism(inboundBody);

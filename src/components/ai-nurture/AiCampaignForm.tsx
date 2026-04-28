@@ -15,6 +15,8 @@ interface FormData {
   landing_url: string;
   persona_name: string;
   personality: string;
+  first_message_override: string;
+  office_address: string;
   max_exchanges: number;
   follow_up_delay_minutes: number;
   max_follow_ups: number;
@@ -26,7 +28,7 @@ interface FormData {
 }
 
 interface Props {
-  initial?: Partial<FormData> & { id?: string; persona_name?: string | null };
+  initial?: Partial<FormData> & { id?: string; persona_name?: string | null; first_message_override?: string | null; office_address?: string | null };
   isEdit?: boolean;
   onSaved?: () => void;
 }
@@ -45,6 +47,8 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
     landing_url: initial?.landing_url || '',
     persona_name: initial?.persona_name || '',
     personality: initial?.personality || '',
+    first_message_override: initial?.first_message_override || '',
+    office_address: initial?.office_address || '',
     max_exchanges: initial?.max_exchanges ?? 10,
     follow_up_delay_minutes: initial?.follow_up_delay_minutes ?? 120,
     max_follow_ups: initial?.max_follow_ups ?? 3,
@@ -187,17 +191,48 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
         </p>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-1">
-          AI Personality / Tone
-        </label>
-        <textarea
-          value={form.personality}
-          onChange={(e) => set('personality', e.target.value)}
-          rows={3}
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-          placeholder="e.g. Friendly real estate agent, casual but professional, knows the GTA market well"
-        />
+      <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+        <div>
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Agent Configuration — unique to this campaign</p>
+          <label className="block text-sm font-medium text-foreground mb-1">
+            Agent Instructions
+          </label>
+          <textarea
+            value={form.personality}
+            onChange={(e) => set('personality', e.target.value)}
+            rows={4}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            placeholder={`Describe how this agent should behave for this specific campaign.\n\nE.g.: You are a knowledgeable Novella sales rep. Keep it conversational and low-pressure. Focus on lot sizes and the interest-free mortgage promo. If asked about pricing, always mention the promo first.`}
+          />
+          <p className="text-xs text-muted mt-1">These instructions only apply to this campaign — other campaigns have their own separate agents.</p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">
+            Office / Meeting Address <span className="text-muted font-normal">(optional)</span>
+          </label>
+          <input
+            value={form.office_address}
+            onChange={(e) => set('office_address', e.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            placeholder="e.g. 2550 Argentia Rd, Unit 203, Mississauga, ON"
+          />
+          <p className="text-xs text-muted mt-1">If a lead asks about visiting or meeting in person, the agent will flag it for you and reply that it will get back to them. This address is shown to the AI so it never invents a fake one.</p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">
+            First Message <span className="text-muted font-normal">(optional — write your own)</span>
+          </label>
+          <textarea
+            value={form.first_message_override}
+            onChange={(e) => set('first_message_override', e.target.value)}
+            rows={3}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            placeholder={`Leave blank to let the AI write the first message.\n\nOr write your own: "Hey {{name}}, it's Fahad — saw you were looking at Novella. Rare detached in Mississauga — starting from $1.4M. Heard much about it?"`}
+          />
+          <p className="text-xs text-muted mt-1">Use <code className="bg-muted px-1 rounded">{'{{name}}'}</code> to insert the lead&apos;s first name. If left blank, the AI generates the opening based on your instructions above.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
