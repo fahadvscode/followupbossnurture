@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { GoalSelector } from './GoalSelector';
 import { TwilioFromSelect } from '@/components/campaigns/TwilioFromSelect';
 import type { AiCampaignGoal, AiEscalationAction } from '@/types';
+import { CheckCircle } from 'lucide-react';
 
 interface FormData {
   name: string;
@@ -27,12 +28,14 @@ interface FormData {
 interface Props {
   initial?: Partial<FormData> & { id?: string; persona_name?: string | null };
   isEdit?: boolean;
+  onSaved?: () => void;
 }
 
-export function AiCampaignForm({ initial, isEdit }: Props) {
+export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
 
   const [form, setForm] = useState<FormData>({
     name: initial?.name || '',
@@ -93,12 +96,27 @@ export function AiCampaignForm({ initial, isEdit }: Props) {
       return;
     }
 
+    setSaving(false);
+
+    if (isEdit) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+      onSaved?.();
+      return;
+    }
+
     const data = await res.json();
-    router.push(`/ai-nurture/${isEdit ? initial?.id : data.campaign?.id}`);
+    router.push(`/ai-nurture/${data.campaign?.id}`);
   };
 
   return (
     <div className="space-y-6 max-w-2xl">
+      {saved && (
+        <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-700 flex items-center gap-2">
+          <CheckCircle size={16} />
+          Campaign updated successfully.
+        </div>
+      )}
       {error && (
         <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
           {error}

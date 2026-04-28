@@ -229,6 +229,7 @@ export default function AiCampaignDetailPage() {
         <div className="rounded-xl border border-border bg-card p-6">
           <AiCampaignForm
             isEdit
+            onSaved={load}
             initial={{
               id: campaign.id,
               name: campaign.name,
@@ -236,6 +237,7 @@ export default function AiCampaignDetailPage() {
               goal: config.goal,
               booking_url: config.booking_url || '',
               landing_url: config.landing_url || '',
+              persona_name: config.persona_name || '',
               personality: config.personality,
               max_exchanges: config.max_exchanges,
               follow_up_delay_minutes: config.follow_up_delay_minutes,
