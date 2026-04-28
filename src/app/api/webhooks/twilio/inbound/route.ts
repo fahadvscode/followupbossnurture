@@ -53,7 +53,32 @@ async function handleReply(
     .eq('status', 'active')
     .order('enrolled_at', { ascending: false });
 
-  const activeList = activeRows || [];
+  let activeList = activeRows || [];
+
+  // Self-heal: if the lead has no active enrollment but has a paused AI nurture enrollment,
+  // reactivate it — it was likely paused by a previous reply-handling error.
+  if (activeList.length === 0) {
+    const { data: pausedAi } = await db
+      .from('drip_enrollments')
+      .select('*, campaign:drip_campaigns(name, campaign_type)')
+      .eq('contact_id', contact.id)
+      .eq('status', 'paused')
+      .order('enrolled_at', { ascending: false });
+
+    const aiPaused = (pausedAi || []).filter(
+      (e) => (e.campaign as { campaign_type?: string } | null)?.campaign_type === 'ai_nurture'
+    );
+
+    if (aiPaused.length > 0) {
+      await db
+        .from('drip_enrollments')
+        .update({ status: 'active', paused_at: null })
+        .in('id', aiPaused.map((e) => e.id));
+
+      activeList = aiPaused.map((e) => ({ ...e, status: 'active' }));
+      console.log(`Self-healed ${aiPaused.length} paused AI nurture enrollment(s) for contact ${contact.id}`);
+    }
+  }
   /** Link inbound row to the newest active enrollment for display; all actives are paused below. */
   const primary = activeList[0];
 
@@ -71,10 +96,17 @@ async function handleReply(
 
   // ── AI nurture: auto-reply instead of pausing ──────────────────────
   const aiHandled: string[] = [];
-  if (activeList.length > 0 && process.env.DEEPSEEK_API_KEY?.trim() && !isOptOut(body)) {
+  if (activeList.length > 0 && !isOptOut(body)) {
     for (const enrollment of activeList) {
       const campRow = enrollment.campaign as { name?: string; campaign_type?: string } | null;
       if (campRow?.campaign_type === 'ai_nurture') {
+        // Always mark AI enrollments as "handled" so they are NEVER paused,
+        // even if the reply fails — pausing an AI nurture enrollment silences it permanently.
+        aiHandled.push(enrollment.id);
+        if (!process.env.DEEPSEEK_API_KEY?.trim()) {
+          console.warn('DEEPSEEK_API_KEY not set — skipping AI reply for enrollment', enrollment.id);
+          continue;
+        }
         try {
           await handleAiReply({
             enrollmentId: enrollment.id,
@@ -83,7 +115,6 @@ async function handleReply(
             contact: contact as Parameters<typeof handleAiReply>[0]['contact'],
             inboundBody: body,
           });
-          aiHandled.push(enrollment.id);
         } catch (e) {
           console.error('AI reply failed for enrollment', enrollment.id, e);
         }
