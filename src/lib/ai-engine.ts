@@ -247,13 +247,26 @@ export function shouldEscalate(
 // Twilio MMS only supports JPEG, PNG, and GIF — webp/svg/etc will be rejected
 const TWILIO_MMS_SUPPORTED = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
 
+/**
+ * When to send an image:
+ *  - 'first'    → very first outbound message (introduce the project visually)
+ *  - 'reply'    → NEVER — replying to a lead with a flyer feels automated
+ *  - 'follow_up'→ only on follow-up #2+ (re-engagement), not on follow-up #1
+ */
 export function selectMedia(
   mediaAssets: AiMedia[],
-  messageType: 'first' | 'follow_up'
+  context: 'first' | 'reply' | 'follow_up',
+  followUpCount?: number
 ): AiMedia | null {
+  // Never attach image when replying to a lead's message
+  if (context === 'reply') return null;
+
+  // For follow-ups, only send image on the 2nd follow-up attempt and beyond
+  if (context === 'follow_up' && (followUpCount ?? 0) < 2) return null;
+
   const eligible = mediaAssets.filter(
     (m) =>
-      (m.send_with === 'any' || m.send_with === messageType) &&
+      (m.send_with === 'any' || m.send_with === context) &&
       TWILIO_MMS_SUPPORTED.includes((m.mime_type || '').toLowerCase())
   );
   return eligible.length > 0 ? eligible[0] : null;
@@ -362,7 +375,11 @@ export async function sendAiMessage(opts: {
 
   if (!aiText) return { sent: false, escalated: false };
 
-  const mediaAsset = selectMedia(media, isFollowUp ? 'follow_up' : 'first');
+  const mediaAsset = selectMedia(
+    media,
+    isFollowUp ? 'follow_up' : 'first',
+    isFollowUp ? convRow.follow_up_count : undefined
+  );
   const fromNumber = campaign.twilio_from_number || undefined;
 
   try {
@@ -472,7 +489,7 @@ export async function handleAiReply(opts: {
 
   if (!aiText) return { replied: false, escalated: false };
 
-  const mediaAsset = selectMedia(media, 'follow_up');
+  const mediaAsset = selectMedia(media, 'reply');
   const fromNumber = campaign.twilio_from_number || undefined;
 
   try {
