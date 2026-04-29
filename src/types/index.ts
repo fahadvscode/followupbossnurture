@@ -298,6 +298,8 @@ export interface AiConversation {
   follow_up_count: number;
   last_outbound_at: string | null;
   last_inbound_at: string | null;
+  /** If set, AI only “sees” messages created after this time. Full log remains in the UI. */
+  context_reset_at: string | null;
   status: AiConversationStatus;
   goal_met_at: string | null;
   escalation_reason: string | null;

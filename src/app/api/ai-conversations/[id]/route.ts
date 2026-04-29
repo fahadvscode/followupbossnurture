@@ -7,7 +7,7 @@ import { pushEvent } from '@/lib/fub';
 type Params = { params: Promise<{ id: string }> };
 
 // POST /api/ai-conversations/[id]
-// body: { action: 'reply' | 'takeover' | 'handback' | 'dismiss_attention', message?: string }
+// body: { action: 'reply' | 'takeover' | 'handback' | 'dismiss_attention' | 'restart' | 'refresh_context', message?: string }
 export async function POST(request: NextRequest, { params }: Params) {
   const { id } = await params;
   const body = await request.json();
@@ -57,8 +57,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     return Response.json({ ok: true, status: 'active' });
   }
 
-  // ── Restart conversation (reset escalation / max-exchange limit) ─────────
-  if (action === 'restart') {
+  // ── Restart / start fresh: reset state AND clear model context (old SMS stay in log for humans)
+  if (action === 'restart' || action === 'refresh_context') {
     await db
       .from('drip_ai_conversations')
       .update({
@@ -70,6 +70,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         takeover_at: null,
         last_outbound_at: null,
         last_inbound_at: null,
+        goal_met_at: null,
+        context_reset_at: now,
       })
       .eq('id', id);
 
@@ -79,7 +81,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       .eq('id', conv.enrollment_id)
       .in('status', ['paused', 'completed', 'opted_out']);
 
-    return Response.json({ ok: true, status: 'active' });
+    return Response.json({ ok: true, status: 'active', context_cleared: true });
   }
 
   // ── Dismiss needs_attention flag ──────────────────────────────────

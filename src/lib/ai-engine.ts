@@ -315,16 +315,35 @@ export function selectMedia(
 }
 
 // ─── Load conversation context from DB messages ──────────────────────
+// If contextAfter is set, only messages after that instant are sent to the model
+// (used after "Start fresh" / restart — full history still in drip_messages for the UI).
+
+async function countOutboundForEnrollment(enrollmentId: string): Promise<number> {
+  const db = getServiceClient();
+  const { count } = await db
+    .from('drip_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('enrollment_id', enrollmentId)
+    .eq('direction', 'outbound');
+  return count ?? 0;
+}
 
 export async function loadConversationHistory(
   enrollmentId: string,
-  limit = 20
+  limit = 20,
+  contextAfter: string | null = null
 ): Promise<ChatMessage[]> {
   const db = getServiceClient();
-  const { data: messages } = await db
+  let q = db
     .from('drip_messages')
     .select('direction, body')
-    .eq('enrollment_id', enrollmentId)
+    .eq('enrollment_id', enrollmentId);
+
+  if (contextAfter) {
+    q = q.gt('created_at', contextAfter);
+  }
+
+  const { data: messages } = await q
     .order('created_at', { ascending: true })
     .limit(limit);
 
@@ -406,8 +425,11 @@ export async function sendAiMessage(opts: {
   const phone = normalizePhone(contact.phone);
   if (!phone) return { sent: false, escalated: false };
 
-  const history = await loadConversationHistory(enrollmentId);
-  const isFirstMessage = !isFollowUp && history.length === 0;
+  const after = convRow.context_reset_at || null;
+  const history = await loadConversationHistory(enrollmentId, 20, after);
+  const everOutbound = await countOutboundForEnrollment(enrollmentId);
+  // True only for the first-ever outbound on this enrollment — not again after a context reset
+  const isFirstMessage = !isFollowUp && everOutbound === 0;
 
   // Use the campaign's custom first message if provided — skip AI generation entirely
   let aiText: string | null = null;
@@ -560,7 +582,7 @@ export async function handleAiReply(opts: {
     return { replied: true, escalated: false };
   }
 
-  const history = await loadConversationHistory(enrollmentId);
+  const history = await loadConversationHistory(enrollmentId, 20, convRow.context_reset_at || null);
   const leadIsSkeptical = detectSkepticism(inboundBody);
   const systemPrompt = buildSystemPrompt(config, campaign, docs, {
     contactFirstName: contact.first_name || undefined,

@@ -52,6 +52,12 @@ export default function ConversationDetailPage() {
   const convAction = useCallback(
     async (action: string, message?: string) => {
       if (!conversation) return;
+      if (action === 'restart' || action === 'refresh_context') {
+        const ok = window.confirm(
+          'Start fresh? The full transcript stays in the log, but the AI will only use messages from now on — it will not remember the earlier part of the chat.'
+        );
+        if (!ok) return;
+      }
       setSending(true);
       setActionStatus(null);
       const res = await fetch(`/api/ai-conversations/${conversation.id}`, {
@@ -63,7 +69,17 @@ export default function ConversationDetailPage() {
       if (!res.ok) {
         setActionStatus(`Error: ${data.error || 'Failed'}`);
       } else {
-        setActionStatus(action === 'reply' ? 'Sent!' : action === 'takeover' ? 'You are now in control — AI paused.' : action === 'handback' ? 'AI resumed.' : 'Done.');
+        setActionStatus(
+          action === 'reply'
+            ? 'Sent!'
+            : action === 'takeover'
+              ? 'You are now in control — AI paused.'
+              : action === 'handback'
+                ? 'AI resumed.'
+                : action === 'restart' || action === 'refresh_context'
+                  ? 'Started fresh. AI will not use messages before the reset for context.'
+                  : 'Done.'
+        );
         await load();
         if (action === 'reply') setReply('');
         setTimeout(() => setActionStatus(null), 3000);
@@ -115,6 +131,30 @@ export default function ConversationDetailPage() {
         </div>
       </div>
 
+      {conversation?.context_reset_at && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-2.5 text-xs text-blue-900">
+          <strong>AI context reset</strong> — {new Date(conversation.context_reset_at).toLocaleString()}.
+          Older messages stay in the log; the AI does not use them when generating replies.
+        </div>
+      )}
+
+      {conversation && conversation.status === 'active' && !isHumanTakeover && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-dashed border-border bg-card p-3">
+          <p className="text-sm text-muted">
+            <strong className="text-foreground">Start fresh</strong> — clear the AI’s memory and reset exchange limits.
+            The full transcript stays here; only what the model &quot;remembers&quot; is cleared.
+          </p>
+          <button
+            type="button"
+            onClick={() => convAction('refresh_context')}
+            disabled={sending}
+            className="flex items-center justify-center gap-1.5 shrink-0 text-xs font-medium text-accent border border-accent/30 rounded-lg px-3 py-2 hover:bg-accent/10 disabled:opacity-50"
+          >
+            <RefreshCw size={12} /> Start fresh
+          </button>
+        </div>
+      )}
+
       {/* Attention banner */}
       {conversation?.needs_attention && !isHumanTakeover && (
         <div className="flex items-center justify-between rounded-lg border border-yellow-300 bg-yellow-50 p-3">
@@ -138,11 +178,11 @@ export default function ConversationDetailPage() {
             <strong>Escalated:</strong> {conversation?.escalation_reason || 'Needs human review'}
           </p>
           <button
-            onClick={() => convAction('restart')}
+            onClick={() => convAction('refresh_context')}
             disabled={sending}
             className="flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 border border-red-300 rounded-lg px-3 py-1.5 hover:bg-red-100 disabled:opacity-50 shrink-0 ml-3"
           >
-            <RefreshCw size={12} /> Restart AI
+            <RefreshCw size={12} /> Start fresh
           </button>
         </div>
       )}
@@ -180,14 +220,14 @@ export default function ConversationDetailPage() {
         <div className="flex items-center justify-between rounded-lg border border-border bg-card p-3">
           <p className="text-sm text-muted">
             AI conversation ended ({conversation?.status.replace(/_/g, ' ')}).
-            Restart to let AI engage again from the beginning.
+            Start fresh to let the AI engage again with a clean slate.
           </p>
           <button
-            onClick={() => convAction('restart')}
+            onClick={() => convAction('refresh_context')}
             disabled={sending}
             className="flex items-center gap-1.5 text-xs font-medium text-accent border border-accent/30 rounded-lg px-3 py-1.5 hover:bg-accent/10 disabled:opacity-50 shrink-0 ml-3"
           >
-            <RefreshCw size={12} /> Restart AI
+            <RefreshCw size={12} /> Start fresh
           </button>
         </div>
       )}

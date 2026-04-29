@@ -61,11 +61,18 @@ export default function InboxPage() {
 
   const restartConv = async (convId: string, e: React.MouseEvent) => {
     e.preventDefault();
+    if (
+      !window.confirm(
+        'Start fresh? The full transcript stays in the log, but the AI will only use messages from now on.'
+      )
+    ) {
+      return;
+    }
     setRestarting(convId);
     await fetch(`/api/ai-conversations/${convId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'restart' }),
+      body: JSON.stringify({ action: 'refresh_context' }),
     });
     setRestarting(null);
     load();
@@ -194,14 +201,16 @@ export default function InboxPage() {
                     <Clock size={11} />
                     {timeAgo(lastActivity)}
                   </p>
-                  {(conv.status === 'escalated' || conv.status === 'paused' || conv.status === 'human_takeover') && (
+                  {['active', 'escalated', 'paused', 'human_takeover', 'goal_met'].includes(
+                    conv.status
+                  ) && (
                     <button
                       onClick={(e) => restartConv(conv.id, e)}
                       disabled={restarting === conv.id}
                       className="flex items-center gap-1 text-[10px] font-medium text-accent border border-accent/30 rounded-md px-2 py-1 hover:bg-accent/10 disabled:opacity-50"
                     >
                       <RefreshCw size={10} />
-                      {restarting === conv.id ? '...' : 'Restart'}
+                      {restarting === conv.id ? '...' : 'Start fresh'}
                     </button>
                   )}
                 </div>
