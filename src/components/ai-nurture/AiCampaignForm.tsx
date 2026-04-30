@@ -50,7 +50,7 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
     first_message_override: initial?.first_message_override || '',
     office_address: initial?.office_address || '',
     max_exchanges: initial?.max_exchanges ?? 10,
-    follow_up_delay_minutes: initial?.follow_up_delay_minutes ?? 120,
+    follow_up_delay_minutes: initial?.follow_up_delay_minutes ?? 1440,
     max_follow_ups: initial?.max_follow_ups ?? 3,
     escalation_action: initial?.escalation_action || 'both',
     trigger_tags: initial?.trigger_tags || '',
@@ -252,12 +252,16 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
           <label className="block text-sm font-medium text-foreground mb-1">Follow-up Delay</label>
           <input
             type="number"
-            min={5}
+            min={60}
             value={form.follow_up_delay_minutes}
-            onChange={(e) => set('follow_up_delay_minutes', parseInt(e.target.value) || 120)}
+            onChange={(e) => set('follow_up_delay_minutes', parseInt(e.target.value) || 1440)}
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
           />
-          <p className="text-xs text-muted mt-1">Minutes before follow-up</p>
+          <p className="text-xs text-muted mt-1">
+            Minutes after your last outbound before the next nudge if the lead stays silent.{' '}
+            <strong>1440 (24h)</strong> ≈ at most one automated follow-up per day — a common bar for
+            SMS nurture so you don’t fatigue leads or trigger spam filters.
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">Max Follow-ups</label>

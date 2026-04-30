@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { getServiceClient } from './supabase';
+import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendSMS, sendMMS } from './twilio';
 import { normalizePhone } from './utils';
 import { pushEvent, createFubTask } from './fub';
@@ -395,7 +396,7 @@ export async function sendAiMessage(opts: {
   campaignId: string;
   contact: DripContact;
   isFollowUp: boolean;
-}): Promise<{ sent: boolean; escalated: boolean }> {
+}): Promise<{ sent: boolean; escalated: boolean; quietHours?: boolean }> {
   const db = getServiceClient();
   const { enrollmentId, contactId, campaignId, contact, isFollowUp } = opts;
   const now = new Date().toISOString();
@@ -424,6 +425,10 @@ export async function sendAiMessage(opts: {
 
   const phone = normalizePhone(contact.phone);
   if (!phone) return { sent: false, escalated: false };
+
+  if (shouldDeferProactiveSms()) {
+    return { sent: false, escalated: false, quietHours: true };
+  }
 
   const after = convRow.context_reset_at || null;
   const history = await loadConversationHistory(enrollmentId, 20, after);
@@ -780,6 +785,73 @@ export async function findDueAiFollowUps(): Promise<
       contact: contactRow as DripContact,
       conversation: conv,
       config,
+    });
+  }
+
+  return results;
+}
+
+// ─── First AI SMS never sent (e.g. enrolled during Toronto quiet hours) ──
+
+export async function findDueAiFirstTouches(): Promise<
+  {
+    enrollment: { id: string; contact_id: string; campaign_id: string };
+    contact: DripContact;
+    conversation: AiConversation;
+    config: AiCampaignConfig;
+  }[]
+> {
+  const db = getServiceClient();
+  const results: Awaited<ReturnType<typeof findDueAiFirstTouches>> = [];
+
+  const { data: convos } = await db
+    .from('drip_ai_conversations')
+    .select('*')
+    .eq('status', 'active')
+    .is('last_outbound_at', null);
+
+  if (!convos) return results;
+
+  for (const conv of convos as AiConversation[]) {
+    const { data: campaignRow } = await db
+      .from('drip_campaigns')
+      .select('status, campaign_type')
+      .eq('id', conv.campaign_id)
+      .single();
+    if (!campaignRow || campaignRow.status !== 'active' || campaignRow.campaign_type !== 'ai_nurture') {
+      continue;
+    }
+
+    const { data: configRow } = await db
+      .from('drip_ai_campaign_config')
+      .select('*')
+      .eq('campaign_id', conv.campaign_id)
+      .single();
+    if (!configRow) continue;
+
+    const { data: enrollmentRow } = await db
+      .from('drip_enrollments')
+      .select('status')
+      .eq('id', conv.enrollment_id)
+      .single();
+    if (!enrollmentRow || enrollmentRow.status !== 'active') continue;
+
+    const { data: contactRow } = await db
+      .from('drip_contacts')
+      .select('*')
+      .eq('id', conv.contact_id)
+      .single();
+    if (!contactRow || contactRow.opted_out) continue;
+
+    results.push({
+      enrollment: {
+        id: conv.enrollment_id,
+        contact_id: conv.contact_id,
+        campaign_id: conv.campaign_id,
+      },
+      contact: contactRow as DripContact,
+      conversation: conv,
+      config: configRow as AiCampaignConfig,
     });
   }
 

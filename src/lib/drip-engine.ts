@@ -10,6 +10,7 @@ import {
 } from './fub';
 import { normalizePhone, formatDripStepDayLabel } from './utils';
 import { deliveryErrorMeta } from './delivery-error-meta';
+import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendAiMessage } from './ai-engine';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
 
@@ -313,6 +314,8 @@ async function processSmsStep(msg: DueMessage): Promise<boolean> {
 
   const phone = normalizePhone(contact.phone);
   if (!phone) return false;
+
+  if (shouldDeferProactiveSms()) return false;
 
   const body = renderTemplate(step.message_template, templateVars(contact, campaign.name));
 

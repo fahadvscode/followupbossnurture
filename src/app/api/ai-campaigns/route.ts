@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
     first_message_override: body.first_message_override || null,
     office_address: body.office_address || null,
     max_exchanges: body.max_exchanges ?? 10,
-    follow_up_delay_minutes: body.follow_up_delay_minutes ?? 120,
+    follow_up_delay_minutes: body.follow_up_delay_minutes ?? 1440,
     max_follow_ups: body.max_follow_ups ?? 3,
     escalation_action: body.escalation_action || 'both',
     escalation_fub_user_id: body.escalation_fub_user_id || null,
