@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
   ArrowLeft,
+  Copy,
   Folder,
   FolderInput,
   FolderPlus,
@@ -41,6 +42,8 @@ export default function TemplatesClient() {
   const [renameFolderDraft, setRenameFolderDraft] = useState('');
   const [quickFolderName, setQuickFolderName] = useState('');
   const [quickFolderSaving, setQuickFolderSaving] = useState(false);
+  const [duplicatingFolderId, setDuplicatingFolderId] = useState<string | null>(null);
+  const [duplicatingTemplateId, setDuplicatingTemplateId] = useState<string | null>(null);
 
   const [formName, setFormName] = useState('');
   const [formChannel, setFormChannel] = useState<'sms' | 'email'>('sms');
@@ -304,6 +307,46 @@ export default function TemplatesClient() {
     await loadTemplates();
   }
 
+  async function handleDuplicateFolder(folderId: string) {
+    setFolderActionError(null);
+    setDuplicatingFolderId(folderId);
+    try {
+      const r = await fetch(`/api/template-folders/${folderId}/duplicate`, { method: 'POST' });
+      const payload = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setFolderActionError(
+          typeof payload.error === 'string' ? payload.error : 'Could not duplicate folder.'
+        );
+        return;
+      }
+      const newId = (payload.folder as { id?: string } | undefined)?.id;
+      await loadFolders();
+      await loadTemplates();
+      if (newId) setFolderScope(newId);
+    } catch {
+      setFolderActionError('Network error — could not duplicate folder.');
+    } finally {
+      setDuplicatingFolderId(null);
+    }
+  }
+
+  async function handleDuplicateTemplate(templateId: string) {
+    setDuplicatingTemplateId(templateId);
+    try {
+      const r = await fetch(`/api/templates/${templateId}/duplicate`, { method: 'POST' });
+      const payload = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        window.alert(typeof payload.error === 'string' ? payload.error : 'Could not duplicate template.');
+        return;
+      }
+      await loadTemplates();
+    } catch {
+      window.alert('Network error — could not duplicate template.');
+    } finally {
+      setDuplicatingTemplateId(null);
+    }
+  }
+
   function onHtmlFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -390,8 +433,8 @@ export default function TemplatesClient() {
                 {creatingFolder ? 'Creating…' : 'Create folder'}
               </Button>
               <p className="text-[11px] text-muted leading-snug">
-                Enter the name above, then <strong>Create folder</strong> or press Enter. Use the pencil on
-                a folder to rename it.
+                Enter the name above, then <strong>Create folder</strong> or press Enter. Use the copy icon to
+                duplicate a folder (and all templates in it), the pencil to rename, or the trash to delete.
               </p>
               {folderActionError ? (
                 <p className="text-xs text-danger" role="alert">
@@ -484,6 +527,25 @@ export default function TemplatesClient() {
                         variant="ghost"
                         size="sm"
                         className="h-7 w-7 p-0 opacity-60 group-hover:opacity-100"
+                        disabled={duplicatingFolderId === f.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDuplicateFolder(f.id);
+                        }}
+                        aria-label={`Duplicate folder ${f.name}`}
+                        title="Duplicate folder and all templates inside"
+                      >
+                        {duplicatingFolderId === f.id ? (
+                          <Loader2 size={12} className="animate-spin text-muted" />
+                        ) : (
+                          <Copy size={12} className="text-muted" />
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 opacity-60 group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation();
                           startRenameFolder(f);
@@ -560,6 +622,21 @@ export default function TemplatesClient() {
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={duplicatingTemplateId === t.id}
+                        onClick={() => void handleDuplicateTemplate(t.id)}
+                        aria-label="Duplicate"
+                        title="Duplicate template"
+                      >
+                        {duplicatingTemplateId === t.id ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Copy size={14} />
+                        )}
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"

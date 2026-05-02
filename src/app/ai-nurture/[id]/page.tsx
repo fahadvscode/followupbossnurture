@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Settings, Sparkles, MessageSquare, Users, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
 import { KnowledgeManager } from '@/components/ai-nurture/KnowledgeManager';
 import { MediaManager } from '@/components/ai-nurture/MediaManager';
 import { AiCampaignForm } from '@/components/ai-nurture/AiCampaignForm';
@@ -93,18 +94,21 @@ export default function AiCampaignDetailPage() {
             <p className="text-sm text-muted">{goalLabels[config.goal]}</p>
           </div>
         </div>
-        <span
-          className={cn(
-            'rounded-full px-3 py-1 text-xs font-medium',
-            campaign.status === 'active'
-              ? 'bg-green-500/15 text-green-600'
-              : campaign.status === 'paused'
-                ? 'bg-yellow-500/15 text-yellow-600'
-                : 'bg-gray-500/15 text-gray-500'
-          )}
-        >
-          {campaign.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <DuplicateCampaignButton campaignId={id} />
+          <span
+            className={cn(
+              'rounded-full px-3 py-1 text-xs font-medium',
+              campaign.status === 'active'
+                ? 'bg-green-500/15 text-green-600'
+                : campaign.status === 'paused'
+                  ? 'bg-yellow-500/15 text-yellow-600'
+                  : 'bg-gray-500/15 text-gray-500'
+            )}
+          >
+            {campaign.status}
+          </span>
+        </div>
       </div>
 
       <div className="flex gap-1 border-b border-border overflow-x-auto">

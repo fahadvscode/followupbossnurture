@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/ui/stat-card';
 import { Button } from '@/components/ui/button';
 import { CampaignControls } from '@/components/campaigns/CampaignControls';
+import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
 import { ArrowLeft, Edit, Users, MessageSquare, MessageCircle, CheckCircle } from 'lucide-react';
 import {
   percentage,
@@ -137,11 +138,14 @@ export default async function CampaignDetailPage({ params }: PageProps) {
             <CampaignControls campaignId={id} status={c.status} />
           </div>
         </div>
-        <Link href={`/campaigns/${id}/edit`}>
-          <Button variant="secondary">
-            <Edit size={14} className="mr-2" /> Edit
-          </Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <DuplicateCampaignButton campaignId={id} />
+          <Link href={`/campaigns/${id}/edit`}>
+            <Button variant="secondary">
+              <Edit size={14} className="mr-2" /> Edit
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
