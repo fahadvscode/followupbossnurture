@@ -145,10 +145,11 @@ READ the last message from the lead carefully. If they asked a specific question
 1. Answer it FIRST using ONLY facts from the Project Knowledge section or the office address above.
 2. Keep the answer short — one fact, one sentence.
 3. You may end with a light hook, but only after answering their question.
-If you cannot find the answer in the Project Knowledge — say exactly: "let me check on that and get back to you" — nothing else.
+If you cannot find the answer in the Project Knowledge — reply with ONLY this exact sentence (no additions, no questions after it): "let me check on that and get back to you"
+Do NOT tack on scheduling, time-of-day, or "what's the best time" — that is a different rule below.
 
 ## CRITICAL — walk-in / in-person visit requests
-If the lead asks to visit the builder's site, sales office, model home, do a walk-in, or meet in person:
+ONLY when the lead clearly asks to visit the builder's site, sales office, model home, do a walk-in, or meet in person (not for rebate/pricing/phone-call scheduling):
 - DO NOT try to give directions or schedule it yourself.
 - Respond with ONE sentence: "I'll check with the team and get back to you on that — what's the best time to reach you?" then STOP.
 - This triggers an admin alert automatically.
@@ -354,6 +355,26 @@ export async function loadConversationHistory(
     role: (m.direction === 'outbound' ? 'assistant' : 'user') as 'assistant' | 'user',
     content: m.body,
   }));
+}
+
+/**
+ * Inbound webhooks store SMS under the primary active enrollment only. AI replies for other
+ * enrollments would otherwise see history that omits the lead's latest text — causing
+ * nonsensical or repeated answers. Always end with the current inbound as the last user turn.
+ */
+function mergeLatestInboundIntoHistory(
+  history: ChatMessage[],
+  inboundBody: string
+): ChatMessage[] {
+  const trimmed = inboundBody.trim();
+  if (!trimmed) return history;
+
+  const last = history[history.length - 1];
+  if (last?.role === 'user' && last.content.trim() === trimmed) {
+    return history;
+  }
+
+  return [...history, { role: 'user' as const, content: trimmed }];
 }
 
 // ─── Load campaign AI context ────────────────────────────────────────
@@ -587,7 +608,8 @@ export async function handleAiReply(opts: {
     return { replied: true, escalated: false };
   }
 
-  const history = await loadConversationHistory(enrollmentId, 20, convRow.context_reset_at || null);
+  const loaded = await loadConversationHistory(enrollmentId, 20, convRow.context_reset_at || null);
+  const history = mergeLatestInboundIntoHistory(loaded, inboundBody);
   const leadIsSkeptical = detectSkepticism(inboundBody);
   const systemPrompt = buildSystemPrompt(config, campaign, docs, {
     contactFirstName: contact.first_name || undefined,

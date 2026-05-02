@@ -96,6 +96,9 @@ async function handleReply(
 
   // ── AI nurture: auto-reply instead of pausing ──────────────────────
   const aiHandled: string[] = [];
+  const primaryCamp = primary?.campaign as { campaign_type?: string } | null;
+  const primaryIsAiNurture = primaryCamp?.campaign_type === 'ai_nurture';
+
   if (activeList.length > 0 && !isOptOut(body)) {
     for (const enrollment of activeList) {
       const campRow = enrollment.campaign as { name?: string; campaign_type?: string } | null;
@@ -105,6 +108,12 @@ async function handleReply(
         aiHandled.push(enrollment.id);
         if (!process.env.DEEPSEEK_API_KEY?.trim()) {
           console.warn('DEEPSEEK_API_KEY not set — skipping AI reply for enrollment', enrollment.id);
+          continue;
+        }
+        // Inbound rows are attributed to `primary` only. When that enrollment is AI nurture,
+        // generate a single reply for that thread — otherwise multiple AI campaigns would each
+        // text the lead once per inbound (duplicate/confusing messages).
+        if (primaryIsAiNurture && primary && enrollment.id !== primary.id) {
           continue;
         }
         try {
