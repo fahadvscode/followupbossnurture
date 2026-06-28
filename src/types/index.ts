@@ -65,12 +65,22 @@ export type SourceCategory =
 
 export type CampaignType = 'standard' | 'ai_nurture';
 
+/** A named set of tags for grouped trigger matching (e.g. "City": [Brampton, Mississauga]). */
+export interface TriggerGroup {
+  label: string;
+  tags: string[];
+}
+
 export interface DripCampaign {
   id: string;
   name: string;
   description: string | null;
   trigger_tags: string[];
   trigger_sources: string[];
+  /** Grouped tag triggers; lead must match `trigger_min_groups` of these groups. */
+  trigger_groups: TriggerGroup[];
+  /** How many groups must match before auto-enrolling (default 1). */
+  trigger_min_groups: number;
   status: CampaignStatus;
   campaign_type: CampaignType;
   /** E.164 Twilio number to send this campaign from; null uses TWILIO_PHONE_NUMBER env */

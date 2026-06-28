@@ -670,10 +670,55 @@ export async function sendAiNurtureFirstTouchAfterEnroll(params: {
 
 // ─── Auto-enrollment ─────────────────────────────────────────────────
 
-function tagMatchesTrigger(contactTags: string[], trigger: string): boolean {
+/** Exact, case-insensitive tag match (no partial/substring matching). */
+function hasExactTag(contactTags: string[], trigger: string): boolean {
   const t = trigger.trim().toLowerCase();
   if (!t) return false;
-  return contactTags.some((tag) => tag.toLowerCase() === t || tag.toLowerCase().includes(t));
+  return contactTags.some((tag) => tag.trim().toLowerCase() === t);
+}
+
+type TriggerGroup = { label?: string; tags?: string[] };
+
+/** Number of groups in which the contact has at least one exactly-matching tag. */
+function countMatchedGroups(contactTags: string[], groups: TriggerGroup[]): number {
+  let matched = 0;
+  for (const group of groups) {
+    const groupTags = Array.isArray(group?.tags) ? group.tags : [];
+    if (groupTags.some((tag) => hasExactTag(contactTags, tag))) matched++;
+  }
+  return matched;
+}
+
+/**
+ * Decide whether a contact should enroll in a campaign.
+ * - When the campaign defines `trigger_groups`, require matches in at least
+ *   `trigger_min_groups` distinct groups (exact tag matching).
+ * - Otherwise fall back to legacy any-tag (exact) or source matching.
+ */
+function campaignTriggersForContact(
+  campaign: {
+    trigger_tags?: string[];
+    trigger_sources?: string[];
+    trigger_groups?: TriggerGroup[];
+    trigger_min_groups?: number;
+  },
+  contactTags: string[],
+  sourceCategory: string
+): boolean {
+  const groups = Array.isArray(campaign.trigger_groups) ? campaign.trigger_groups : [];
+  const usableGroups = groups.filter((g) => Array.isArray(g?.tags) && g.tags.length > 0);
+
+  if (usableGroups.length > 0) {
+    const minGroups = Math.max(1, Number(campaign.trigger_min_groups) || 1);
+    const required = Math.min(minGroups, usableGroups.length);
+    return countMatchedGroups(contactTags, usableGroups) >= required;
+  }
+
+  const tagMatch = (campaign.trigger_tags || []).some((tr) => hasExactTag(contactTags, tr));
+  const sourceMatch = (campaign.trigger_sources || []).some(
+    (s) => s.toLowerCase() === (sourceCategory || '').toLowerCase()
+  );
+  return tagMatch || sourceMatch;
 }
 
 export async function autoEnrollContact(contactId: string, tags: string[], sourceCategory: string) {
@@ -689,14 +734,7 @@ export async function autoEnrollContact(contactId: string, tags: string[], sourc
   const normalizedTags = Array.isArray(tags) ? tags : [];
 
   for (const campaign of campaigns) {
-    const tagMatch = (campaign.trigger_tags || []).some((tr: string) =>
-      tagMatchesTrigger(normalizedTags, tr)
-    );
-    const sourceMatch = (campaign.trigger_sources || []).some((s: string) =>
-      s.toLowerCase() === sourceCategory.toLowerCase()
-    );
-
-    if (!tagMatch && !sourceMatch) continue;
+    if (!campaignTriggersForContact(campaign, normalizedTags, sourceCategory)) continue;
 
     const { data: existing } = await db
       .from('drip_enrollments')

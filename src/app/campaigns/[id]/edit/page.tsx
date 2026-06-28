@@ -12,8 +12,9 @@ import {
   defaultCampaignStep,
   type CampaignStepForm,
 } from '@/components/campaigns/StepEditor';
-import type { EmailBodyFormat } from '@/types';
+import type { EmailBodyFormat, TriggerGroup } from '@/types';
 import { TwilioFromSelect } from '@/components/campaigns/TwilioFromSelect';
+import { TriggerGroupEditor } from '@/components/campaigns/TriggerGroupEditor';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -77,8 +78,9 @@ export default function EditCampaignPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('active');
-  const [triggerTags, setTriggerTags] = useState('');
   const [triggerSources, setTriggerSources] = useState('');
+  const [triggerGroups, setTriggerGroups] = useState<TriggerGroup[]>([]);
+  const [triggerMinGroups, setTriggerMinGroups] = useState(1);
   const [twilioFrom, setTwilioFrom] = useState('');
   const [steps, setSteps] = useState<CampaignStepForm[]>([]);
 
@@ -89,8 +91,14 @@ export default function EditCampaignPage() {
         setName(data.campaign.name);
         setDescription(data.campaign.description || '');
         setStatus(data.campaign.status);
-        setTriggerTags((data.campaign.trigger_tags || []).join(', '));
         setTriggerSources((data.campaign.trigger_sources || []).join(', '));
+        const loadedGroups: TriggerGroup[] = Array.isArray(data.campaign.trigger_groups)
+          ? data.campaign.trigger_groups
+          : [];
+        setTriggerGroups(loadedGroups);
+        setTriggerMinGroups(
+          Math.max(1, Number(data.campaign.trigger_min_groups) || 1)
+        );
         setTwilioFrom(data.campaign.twilio_from_number || '');
         setSteps(
           Array.isArray(data.steps) && data.steps.length > 0
@@ -118,8 +126,10 @@ export default function EditCampaignPage() {
         name: name.trim(),
         description: description.trim() || null,
         status,
-        trigger_tags: triggerTags.split(',').map((t) => t.trim()).filter(Boolean),
+        trigger_tags: [],
         trigger_sources: triggerSources.split(',').map((t) => t.trim()).filter(Boolean),
+        trigger_groups: triggerGroups,
+        trigger_min_groups: triggerMinGroups,
         twilio_from_number: hasSms ? twilioFrom.trim() : null,
         steps,
       }),
@@ -172,12 +182,23 @@ export default function EditCampaignPage() {
                 </Select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Trigger Tags</label>
-                <Input value={triggerTags} onChange={(e) => setTriggerTags(e.target.value)} placeholder="Comma separated" />
+                <label className="block text-sm font-medium text-foreground mb-1">Trigger Tag Groups</label>
+                <p className="text-xs text-muted mb-2">
+                  Require a minimum number of tag groups to match before a lead enrolls.
+                </p>
+                <TriggerGroupEditor
+                  value={triggerGroups}
+                  minGroups={triggerMinGroups}
+                  onChange={(groups, min) => {
+                    setTriggerGroups(groups);
+                    setTriggerMinGroups(min);
+                  }}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">Trigger Sources</label>
-                <Input value={triggerSources} onChange={(e) => setTriggerSources(e.target.value)} placeholder="Comma separated" />
+                <Input value={triggerSources} onChange={(e) => setTriggerSources(e.target.value)} placeholder="Comma separated (optional)" />
+                <p className="text-xs text-muted mt-1">Ignored when tag groups are set.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">

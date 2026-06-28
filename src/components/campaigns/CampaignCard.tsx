@@ -41,14 +41,34 @@ export function CampaignCard({ campaign, stats, stepDayLabels = [] }: CampaignCa
             </Badge>
           </div>
 
-          <div className="flex flex-wrap gap-1.5 mb-4">
-            {(campaign.trigger_tags || []).map((tag) => (
-              <Badge key={tag} variant="info">{tag}</Badge>
-            ))}
-            {(campaign.trigger_sources || []).map((src) => (
-              <Badge key={src} variant="default">{src}</Badge>
-            ))}
-          </div>
+          {(campaign.trigger_groups || []).length > 0 ? (
+            <div className="mb-4 space-y-1.5">
+              <p className="text-[10px] font-medium text-muted uppercase tracking-wide">
+                Match {Math.min(campaign.trigger_min_groups || 1, (campaign.trigger_groups || []).length)} of{' '}
+                {(campaign.trigger_groups || []).length} groups
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {(campaign.trigger_groups || []).map((group, gi) => (
+                  <Badge key={group.label || gi} variant="info">
+                    {group.label ? `${group.label}: ` : ''}
+                    {(group.tags || []).join(' / ')}
+                  </Badge>
+                ))}
+                {(campaign.trigger_sources || []).map((src) => (
+                  <Badge key={src} variant="default">{src}</Badge>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {(campaign.trigger_tags || []).map((tag) => (
+                <Badge key={tag} variant="info">{tag}</Badge>
+              ))}
+              {(campaign.trigger_sources || []).map((src) => (
+                <Badge key={src} variant="default">{src}</Badge>
+              ))}
+            </div>
+          )}
 
           {labels.length > 0 && (
             <div className="mb-4">

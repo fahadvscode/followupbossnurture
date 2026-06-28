@@ -6,6 +6,33 @@ type StepInput = Record<string, unknown>;
 const VALID_STEP_TYPES = new Set(['sms', 'email', 'fub_action_plan', 'fub_task']);
 const VALID_EMAIL_FORMATS = new Set(['plain', 'html']);
 
+/** Normalize trigger_groups into [{ label, tags[] }], dropping empties. */
+function sanitizeTriggerGroups(raw: unknown): { label: string; tags: string[] }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((g) => {
+      const obj = (g || {}) as Record<string, unknown>;
+      const label = typeof obj.label === 'string' ? obj.label.trim() : '';
+      const tags = Array.isArray(obj.tags)
+        ? Array.from(
+            new Set(
+              obj.tags
+                .map((t) => (typeof t === 'string' ? t.trim() : ''))
+                .filter((t) => t.length > 0)
+            )
+          )
+        : [];
+      return { label, tags };
+    })
+    .filter((g) => g.tags.length > 0);
+}
+
+function sanitizeMinGroups(raw: unknown, groupCount: number): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return groupCount > 0 ? Math.min(n, groupCount) : n;
+}
+
 function mapStepRow(campaignId: string, step: StepInput) {
   const raw = String(step.step_type || 'sms');
   const step_type = VALID_STEP_TYPES.has(raw) ? raw : 'sms';
@@ -72,6 +99,7 @@ export async function POST(request: NextRequest) {
 
   const { steps, ...campaignData } = body;
 
+  const triggerGroups = sanitizeTriggerGroups(campaignData.trigger_groups);
   const { data: campaign, error } = await db
     .from('drip_campaigns')
     .insert({
@@ -79,6 +107,8 @@ export async function POST(request: NextRequest) {
       description: campaignData.description,
       trigger_tags: campaignData.trigger_tags || [],
       trigger_sources: campaignData.trigger_sources || [],
+      trigger_groups: triggerGroups,
+      trigger_min_groups: sanitizeMinGroups(campaignData.trigger_min_groups, triggerGroups.length),
       status: campaignData.status || 'active',
       twilio_from_number: campaignData.twilio_from_number?.trim() || null,
     })
@@ -102,6 +132,7 @@ export async function PUT(request: NextRequest) {
   const body = await request.json();
   const { id, steps, ...updates } = body;
 
+  const triggerGroups = sanitizeTriggerGroups(updates.trigger_groups);
   const { error } = await db
     .from('drip_campaigns')
     .update({
@@ -110,6 +141,8 @@ export async function PUT(request: NextRequest) {
       status: updates.status,
       trigger_tags: updates.trigger_tags || [],
       trigger_sources: updates.trigger_sources || [],
+      trigger_groups: triggerGroups,
+      trigger_min_groups: sanitizeMinGroups(updates.trigger_min_groups, triggerGroups.length),
       twilio_from_number: updates.twilio_from_number?.trim() || null,
     })
     .eq('id', id);

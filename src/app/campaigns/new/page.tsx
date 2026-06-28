@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { StepEditor, defaultCampaignStep, type CampaignStepForm } from '@/components/campaigns/StepEditor';
 import { TwilioFromSelect } from '@/components/campaigns/TwilioFromSelect';
+import { TriggerGroupEditor } from '@/components/campaigns/TriggerGroupEditor';
+import type { TriggerGroup } from '@/types';
 import { ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
 
@@ -27,8 +29,9 @@ export default function NewCampaignPage() {
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [triggerTags, setTriggerTags] = useState('');
   const [triggerSources, setTriggerSources] = useState('');
+  const [triggerGroups, setTriggerGroups] = useState<TriggerGroup[]>([]);
+  const [triggerMinGroups, setTriggerMinGroups] = useState(2);
   const [twilioFrom, setTwilioFrom] = useState('');
   const [steps, setSteps] = useState<CampaignStepForm[]>([
     defaultCampaignStep({ step_number: 1 }),
@@ -49,8 +52,10 @@ export default function NewCampaignPage() {
       body: JSON.stringify({
         name: name.trim(),
         description: description.trim() || null,
-        trigger_tags: triggerTags.split(',').map((t) => t.trim()).filter(Boolean),
+        trigger_tags: [],
         trigger_sources: triggerSources.split(',').map((t) => t.trim()).filter(Boolean),
+        trigger_groups: triggerGroups,
+        trigger_min_groups: triggerMinGroups,
         status: 'active',
         twilio_from_number: hasSms ? twilioFrom.trim() : null,
         steps,
@@ -99,25 +104,34 @@ export default function NewCampaignPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
-                  Trigger Tags
-                  <span className="text-xs text-muted font-normal ml-1">(comma separated)</span>
+                  Trigger Tag Groups
                 </label>
-                <Input
-                  value={triggerTags}
-                  onChange={(e) => setTriggerTags(e.target.value)}
-                  placeholder="Cornerstone, Novella"
+                <p className="text-xs text-muted mb-2">
+                  Group your tags (e.g. property type, city, category) and require a minimum number of groups to
+                  match before a lead enrolls.
+                </p>
+                <TriggerGroupEditor
+                  value={triggerGroups}
+                  minGroups={triggerMinGroups}
+                  onChange={(groups, min) => {
+                    setTriggerGroups(groups);
+                    setTriggerMinGroups(min);
+                  }}
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
                   Trigger Sources
-                  <span className="text-xs text-muted font-normal ml-1">(comma separated)</span>
+                  <span className="text-xs text-muted font-normal ml-1">(optional, comma separated)</span>
                 </label>
                 <Input
                   value={triggerSources}
                   onChange={(e) => setTriggerSources(e.target.value)}
                   placeholder="Facebook, Website"
                 />
+                <p className="text-xs text-muted mt-1">
+                  Sources enroll on any single match and are ignored when tag groups are set.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">

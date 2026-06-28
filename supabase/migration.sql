@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS drip_campaigns (
   description TEXT,
   trigger_tags TEXT[] DEFAULT '{}',
   trigger_sources TEXT[] DEFAULT '{}',
+  -- Grouped tag triggers: array of { "label": string, "tags": string[] }.
+  -- Lead enrolls when it exactly matches a tag in at least `trigger_min_groups` groups.
+  trigger_groups JSONB DEFAULT '[]'::jsonb,
+  trigger_min_groups INTEGER NOT NULL DEFAULT 1,
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'archived')),
   twilio_from_number TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
