@@ -100,25 +100,68 @@ export function isOptOut(message: string): boolean {
   return STOP_WORDS.includes(normalized);
 }
 
+/** Resolve the public origin Twilio should use when validating webhook signatures. */
+export function resolveTwilioWebhookOrigin(): string {
+  const explicit = process.env.TWILIO_WEBHOOK_BASE_URL?.trim();
+  const vercelHost = process.env.VERCEL_URL?.trim();
+  const fromVercel = vercelHost ? `https://${vercelHost}` : '';
+  const fromPublic = process.env.NEXT_PUBLIC_BASE_URL?.trim() || '';
+  const raw = (explicit || fromPublic || fromVercel).replace(/\/$/, '');
+  if (!raw) return '';
+
+  try {
+    const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    return u.origin;
+  } catch {
+    return '';
+  }
+}
+
+export function formDataToTwilioParams(formData: FormData): Record<string, string> {
+  const params: Record<string, string> = {};
+  formData.forEach((value, key) => {
+    params[key] = String(value);
+  });
+  return params;
+}
+
+/** Reject forged Twilio callbacks unless running locally in development. */
+export function validateTwilioWebhookRequest(
+  request: { url: string; headers: { get(name: string): string | null } },
+  params: Record<string, string>
+): boolean {
+  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  if (!authToken) {
+    console.error('TWILIO_AUTH_TOKEN not set; rejecting Twilio webhook');
+    return false;
+  }
+
+  if (process.env.NODE_ENV === 'development') {
+    return true;
+  }
+
+  const signature = request.headers.get('X-Twilio-Signature');
+  if (!signature) return false;
+
+  const pathname = new URL(request.url).pathname;
+  const origin = resolveTwilioWebhookOrigin();
+  const url = origin ? `${origin}${pathname}` : request.url;
+
+  return twilio.validateRequest(authToken, signature, url, params);
+}
+
 /**
  * Twilio rejects StatusCallback URLs that are not publicly reachable (e.g. localhost).
  * On Vercel, VERCEL_URL is set automatically so callbacks work after deploy.
  * For local dev without a tunnel, we omit StatusCallback — SMS still sends; delivery webhooks won't fire.
  */
 function resolveTwilioStatusCallbackUrl(): string | undefined {
-  const explicit = process.env.TWILIO_WEBHOOK_BASE_URL?.trim();
-  const vercelHost = process.env.VERCEL_URL?.trim();
-  const fromVercel = vercelHost ? `https://${vercelHost}` : '';
-  const fromPublic = process.env.NEXT_PUBLIC_BASE_URL?.trim() || '';
-  const raw = (explicit || fromVercel || fromPublic).replace(/\/$/, '');
-  if (!raw) return undefined;
+  const origin = resolveTwilioWebhookOrigin();
+  if (!origin) return undefined;
 
-  let origin: string;
   try {
-    const u = new URL(raw.includes('://') ? raw : `https://${raw}`);
-    const h = u.hostname.toLowerCase();
+    const h = new URL(origin).hostname.toLowerCase();
     if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') return undefined;
-    origin = u.origin;
   } catch {
     return undefined;
   }

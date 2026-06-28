@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
-import { isOptOut } from '@/lib/twilio';
+import { formDataToTwilioParams, isOptOut, validateTwilioWebhookRequest } from '@/lib/twilio';
 import { pushEvent } from '@/lib/fub';
 import { normalizePhone } from '@/lib/utils';
 import { handleAiReply } from '@/lib/ai-engine';
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
+  const params = formDataToTwilioParams(formData);
+
+  if (!validateTwilioWebhookRequest(request, params)) {
+    return NextResponse.json({ error: 'Invalid Twilio signature' }, { status: 403 });
+  }
+
   const from = formData.get('From') as string;
   const body = formData.get('Body') as string;
   const messageSid = formData.get('MessageSid') as string;

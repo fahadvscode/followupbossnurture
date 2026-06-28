@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
+import { computeSessionToken, isValidSessionCookie } from '@/lib/auth-session';
 
-const AUTH_COOKIE = 'drip_auth';
+export const AUTH_COOKIE = 'drip_auth';
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export async function verifyPassword(password: string): Promise<boolean> {
@@ -15,9 +16,14 @@ export async function verifyPassword(password: string): Promise<boolean> {
 }
 
 export async function setAuthCookie() {
+  const token = await computeSessionToken();
+  if (!token) {
+    throw new Error('Cannot create session: ADMIN_PASSWORD or CRON_SECRET must be set');
+  }
+
   const cookieStore = await cookies();
   const expires = new Date(Date.now() + SESSION_DURATION);
-  cookieStore.set(AUTH_COOKIE, 'authenticated', {
+  cookieStore.set(AUTH_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -29,7 +35,7 @@ export async function setAuthCookie() {
 export async function isAuthenticated(): Promise<boolean> {
   const cookieStore = await cookies();
   const auth = cookieStore.get(AUTH_COOKIE);
-  return auth?.value === 'authenticated';
+  return isValidSessionCookie(auth?.value);
 }
 
 export async function clearAuth() {

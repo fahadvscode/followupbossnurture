@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
+import { formDataToTwilioParams, validateTwilioWebhookRequest } from '@/lib/twilio';
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
+  const params = formDataToTwilioParams(formData);
+
+  if (!validateTwilioWebhookRequest(request, params)) {
+    return NextResponse.json({ error: 'Invalid Twilio signature' }, { status: 403 });
+  }
+
   const messageSid = formData.get('MessageSid') as string;
   const messageStatus = formData.get('MessageStatus') as string;
   const errorCode = formData.get('ErrorCode') as string | null;
