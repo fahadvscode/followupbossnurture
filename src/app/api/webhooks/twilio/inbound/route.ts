@@ -4,6 +4,7 @@ import { formDataToTwilioParams, isOptOut, validateTwilioWebhookRequest } from '
 import { pushEvent } from '@/lib/fub';
 import { normalizePhone } from '@/lib/utils';
 import { handleAiReply } from '@/lib/ai-engine';
+import { notifyAgentOfReply } from '@/lib/notify';
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -199,6 +200,27 @@ async function handleReply(
       }).catch((e) => console.error('Failed to push opt-out event to FUB:', e));
     }
   }
+
+  const notifyCampaignName =
+    (primary?.campaign as { name?: string } | null)?.name ||
+    (activeList
+      .map((row) => (row.campaign as { name?: string } | null)?.name)
+      .filter(Boolean)[0] as string | undefined) ||
+    null;
+
+  void notifyAgentOfReply({
+    contact: {
+      id: contact.id,
+      first_name: contact.first_name,
+      last_name: contact.last_name,
+      phone: contact.phone,
+    },
+    body,
+    campaignName: notifyCampaignName,
+    campaignId: primary?.campaign_id ?? null,
+    isAiNurture: primaryIsAiNurture,
+    isOptOut: isOptOut(body),
+  }).catch((e) => console.error('Reply notification error:', e));
 
   return new NextResponse(
     '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
