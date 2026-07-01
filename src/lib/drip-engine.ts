@@ -752,6 +752,8 @@ export type AutoEnrollOptions = {
   previousTags?: string[];
   previousSourceCategory?: string;
   webhookEvent?: string;
+  /** True when the last sync found a fresh inquiry event/note from FUB (e.g. new Zapier lead ad). */
+  hasNewInquiry?: boolean;
 };
 
 function campaignNewlyMatches(
@@ -814,6 +816,7 @@ export async function autoEnrollContact(
   const previousSource = options.previousSourceCategory || '';
   const isNewPersonEvent = options.webhookEvent === 'peopleCreated';
   const isTagEvent = options.webhookEvent === 'peopleTagsCreated';
+  const hasNewInquiry = Boolean(options.hasNewInquiry);
 
   for (const campaign of campaigns) {
     const matchesNow = campaignTriggersForContact(campaign, normalizedTags, sourceCategory);
@@ -822,7 +825,8 @@ export async function autoEnrollContact(
     const freshlyMatched =
       campaignNewlyMatches(campaign, normalizedTags, sourceCategory, previousTags, previousSource) ||
       isNewPersonEvent ||
-      isTagEvent;
+      isTagEvent ||
+      hasNewInquiry;
 
     const { data: existing } = await db
       .from('drip_enrollments')

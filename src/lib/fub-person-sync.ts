@@ -101,13 +101,44 @@ async function insertInChunks(
   }
 }
 
+/** Events / notes whose message or type indicates a fresh lead inquiry. */
+const INQUIRY_PATTERN = /inquir(y|ies)|registered|registration|property\s*(view|inquir)|lead\s*created/i;
+
+function isInquiryEvent(e: Record<string, unknown>): boolean {
+  const type = typeof e.type === 'string' ? e.type : '';
+  const source = typeof e.source === 'string' ? e.source : '';
+  const message = typeof e.message === 'string' ? e.message : '';
+  const description = typeof e.description === 'string' ? e.description : '';
+  return (
+    INQUIRY_PATTERN.test(type) ||
+    INQUIRY_PATTERN.test(message) ||
+    INQUIRY_PATTERN.test(description) ||
+    /facebook|zapier|lead\s*gen/i.test(source)
+  );
+}
+
+function isInquiryNote(n: Record<string, unknown>): boolean {
+  const subject = typeof n.subject === 'string' ? n.subject : '';
+  const body = typeof n.body === 'string' ? n.body : '';
+  const type = typeof n.type === 'string' ? n.type : '';
+  return INQUIRY_PATTERN.test(subject) || INQUIRY_PATTERN.test(body) || INQUIRY_PATTERN.test(type);
+}
+
+function timestamp(v: unknown): number {
+  if (typeof v !== 'string') return 0;
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? t : 0;
+}
+
 /**
  * Fetches full person (allFields), notes, and events from FUB and upserts drip_contacts + child tables.
+ * Also flags whether a **new inquiry** arrived since the last sync so callers can restart drips
+ * even when tags didn't change (e.g. Zapier re-inquiry on an existing lead).
  */
 export async function syncFubPersonDeep(
   db: Db,
   fubPersonId: number
-): Promise<{ contactId: string; opted_out: boolean }> {
+): Promise<{ contactId: string; opted_out: boolean; hasNewInquiry: boolean }> {
   const person = await getPersonByIdFull(fubPersonId);
   if (!person || typeof person.id !== 'number') {
     throw new Error('Invalid FUB person response');
@@ -122,14 +153,49 @@ export async function syncFubPersonDeep(
     .maybeSingle();
 
   let contactId: string;
+  let priorLatestEventMs = 0;
+  let priorLatestNoteMs = 0;
+  let hadPriorInquiry = false;
 
   if (existing?.id) {
+    contactId = existing.id;
+
+    const [{ data: priorEvents }, { data: priorNotes }] = await Promise.all([
+      db
+        .from('drip_fub_events')
+        .select('occurred_at, event_type, event_source, message, description')
+        .eq('contact_id', contactId),
+      db
+        .from('drip_fub_notes')
+        .select('fub_created_at, subject, body, note_type')
+        .eq('contact_id', contactId),
+    ]);
+
+    for (const row of priorEvents || []) {
+      priorLatestEventMs = Math.max(priorLatestEventMs, timestamp(row.occurred_at));
+      if (
+        isInquiryEvent({
+          type: row.event_type,
+          source: row.event_source,
+          message: row.message,
+          description: row.description,
+        })
+      ) {
+        hadPriorInquiry = true;
+      }
+    }
+    for (const row of priorNotes || []) {
+      priorLatestNoteMs = Math.max(priorLatestNoteMs, timestamp(row.fub_created_at));
+      if (isInquiryNote({ subject: row.subject, body: row.body, type: row.note_type })) {
+        hadPriorInquiry = true;
+      }
+    }
+
     const { error } = await db
       .from('drip_contacts')
       .update(payload)
       .eq('fub_id', fubPersonId);
     if (error) throw error;
-    contactId = existing.id;
   } else {
     const { data: inserted, error } = await db
       .from('drip_contacts')
@@ -145,6 +211,42 @@ export async function syncFubPersonDeep(
     listAllNotesForPerson(fubPersonId),
     listAllEventsForPerson(fubPersonId),
   ]);
+
+  let hasNewInquiry = false;
+
+  for (const e of events) {
+    const occurred =
+      typeof e.occurred === 'string'
+        ? e.occurred
+        : typeof e.created === 'string'
+          ? e.created
+          : null;
+    const ts = timestamp(occurred);
+    if (ts > priorLatestEventMs && isInquiryEvent(e)) {
+      hasNewInquiry = true;
+      break;
+    }
+  }
+
+  if (!hasNewInquiry) {
+    for (const n of notes) {
+      const ts = timestamp(n.created);
+      if (ts > priorLatestNoteMs && isInquiryNote(n)) {
+        hasNewInquiry = true;
+        break;
+      }
+    }
+  }
+
+  // Brand-new contact whose very first event on record is an inquiry counts as a new inquiry too.
+  if (!existing?.id && !hasNewInquiry) {
+    hasNewInquiry = events.some(isInquiryEvent) || notes.some(isInquiryNote);
+  }
+
+  // Suppress if we had inquiries before AND no new ones — nothing to restart on.
+  if (hadPriorInquiry && priorLatestEventMs === 0 && priorLatestNoteMs === 0) {
+    hasNewInquiry = false;
+  }
 
   await db.from('drip_fub_notes').delete().eq('contact_id', contactId);
   await db.from('drip_fub_events').delete().eq('contact_id', contactId);
@@ -170,5 +272,5 @@ export async function syncFubPersonDeep(
     .eq('id', contactId)
     .single();
 
-  return { contactId, opted_out: Boolean(row?.opted_out) };
+  return { contactId, opted_out: Boolean(row?.opted_out), hasNewInquiry };
 }

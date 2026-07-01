@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     const previousTags = (beforeRow?.tags as string[]) || [];
     const previousSourceCategory = (beforeRow?.source_category as string) || '';
 
-    const { contactId, opted_out } = await syncFubPersonDeep(db, fubId);
+    const { contactId, opted_out, hasNewInquiry } = await syncFubPersonDeep(db, fubId);
 
     const { data: contact } = await db
       .from('drip_contacts')
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
         contactId,
         (contact.tags as string[]) || [],
         (contact.source_category as string) || 'Other',
-        { previousTags, previousSourceCategory }
+        { previousTags, previousSourceCategory, hasNewInquiry }
       );
     }
 

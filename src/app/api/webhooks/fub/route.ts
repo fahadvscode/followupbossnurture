@@ -18,7 +18,7 @@ async function processFubPerson(
   const previousTags = (beforeRow?.tags as string[]) || [];
   const previousSourceCategory = (beforeRow?.source_category as string) || '';
 
-  const { contactId, opted_out } = await syncFubPersonDeep(db, personId);
+  const { contactId, opted_out, hasNewInquiry } = await syncFubPersonDeep(db, personId);
 
   const { data: contact } = await db
     .from('drip_contacts')
@@ -35,6 +35,7 @@ async function processFubPerson(
         previousTags,
         previousSourceCategory,
         webhookEvent,
+        hasNewInquiry,
       }
     );
   }
