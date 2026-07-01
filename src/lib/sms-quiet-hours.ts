@@ -41,16 +41,16 @@ export function isProactiveSmsQuietHoursNow(date = new Date()): boolean {
 }
 
 /** Proactive = first touch, follow-ups, standard drip SMS. */
-export function shouldDeferProactiveSms(now = new Date()): boolean {
-  return isProactiveSmsQuietHoursNow(now);
+export function shouldDeferProactiveSms(_now = new Date()): boolean {
+  // Quiet hours disabled for now — re-enable with: return isProactiveSmsQuietHoursNow(_now);
+  return false;
 }
 
 /**
  * AI auto-replies to inbound texts are not deferred by default (the lead opened the thread).
  * Set SMS_QUIET_BLOCK_REPLIES=true to defer those too (requires a future queued-reply feature).
  */
-export function shouldDeferAiInboundReply(now = new Date()): boolean {
-  return process.env.SMS_QUIET_BLOCK_REPLIES?.trim().toLowerCase() === 'true'
-    ? isProactiveSmsQuietHoursNow(now)
-    : false;
+export function shouldDeferAiInboundReply(_now = new Date()): boolean {
+  // Quiet hours disabled for now
+  return false;
 }

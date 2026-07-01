@@ -3,6 +3,8 @@ import { findDueMessagesWithDiagnostics, processDueMessage } from '@/lib/drip-en
 import { findDueAiFollowUps, findDueAiFirstTouches, sendAiMessage } from '@/lib/ai-engine';
 import { AUTH_COOKIE } from '@/lib/auth';
 import { isValidSessionCookie } from '@/lib/auth-session';
+import { getServiceClient } from '@/lib/supabase';
+import { summarizeErrorDetail } from '@/lib/delivery-error-meta';
 
 async function authorizeCronRequest(request: NextRequest): Promise<{
   ok: boolean;
@@ -41,11 +43,49 @@ export async function GET(request: NextRequest) {
 
     let sent = 0;
     let failed = 0;
+    const failures: Array<{
+      enrollmentId: string;
+      campaignName: string;
+      contactLabel: string;
+      stepNumber: number;
+      channel: string;
+      error: string;
+    }> = [];
 
     for (const msg of dueMessages) {
       const success = await processDueMessage(msg);
-      if (success) sent++;
-      else failed++;
+      if (success) {
+        sent++;
+        continue;
+      }
+      failed++;
+
+      const contactLabel =
+        `${msg.contact.first_name || ''} ${msg.contact.last_name || ''}`.trim() ||
+        msg.contact.phone ||
+        msg.contact.id;
+
+      const db = getServiceClient();
+      const { data: failedRow } = await db
+        .from('drip_messages')
+        .select('error_detail, channel')
+        .eq('enrollment_id', msg.enrollment.id)
+        .eq('step_number', msg.step.step_number)
+        .eq('status', 'failed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      failures.push({
+        enrollmentId: msg.enrollment.id,
+        campaignName: msg.campaign.name,
+        contactLabel,
+        stepNumber: msg.step.step_number,
+        channel: failedRow?.channel || msg.step.step_type || 'sms',
+        error: failedRow?.error_detail
+          ? summarizeErrorDetail(failedRow.error_detail)
+          : 'Send failed (no error logged — check phone, Twilio from number, or quiet hours)',
+      });
     }
 
     // ── AI nurture: first touch (e.g. deferred from quiet hours) + follow-ups ──
@@ -104,7 +144,7 @@ export async function GET(request: NextRequest) {
     };
 
     if (auth.manual) {
-      payload.diagnostics = { skips };
+      payload.diagnostics = { skips, ...(failures.length ? { failures } : {}) };
     }
 
     return NextResponse.json(payload);

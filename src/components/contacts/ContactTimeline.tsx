@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime } from '@/lib/utils';
+import { summarizeErrorDetail } from '@/lib/delivery-error-meta';
 import { ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 import type { DripMessage } from '@/types';
 
@@ -60,6 +61,11 @@ export function ContactTimeline({
               </Badge>
             </div>
             <p className="text-sm text-foreground">{msg.body}</p>
+            {msg.status === 'failed' && msg.error_detail && (
+              <p className="text-xs text-danger mt-1.5">
+                {summarizeErrorDetail(msg.error_detail)}
+              </p>
+            )}
             <p className="text-xs text-muted mt-1">{formatDateTime(msg.sent_at || msg.created_at)}</p>
           </div>
         </div>
