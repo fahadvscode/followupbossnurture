@@ -418,8 +418,14 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
     });
 
     let smtpSent = false;
+    let smtpError: string | undefined;
     if (process.env.SMTP_HOST?.trim()) {
-      smtpSent = await sendSmtpIfConfigured(to, subject, body, html);
+      try {
+        smtpSent = await sendSmtpIfConfigured(to, subject, body, html);
+      } catch (smtpErr) {
+        smtpError = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
+        console.error(`SMTP failed for ${to} (FUB timeline will still log):`, smtpErr);
+      }
     }
 
     await postEmEmailDelivered({
@@ -430,7 +436,7 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
       userId: resolveFubEmailUserId(msg.step),
     });
 
-    const logBody = `[Email — FUB timeline${smtpSent ? ' + inbox (SMTP)' : ''}] ${subject}\n\n${body}`;
+    const logBody = `[Email — FUB timeline${smtpSent ? ' + inbox (SMTP)' : smtpError ? ' (SMTP failed)' : ''}] ${subject}\n\n${body}`;
 
     await db.from('drip_messages').insert({
       enrollment_id: enrollment.id,
@@ -443,6 +449,11 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
       status: 'sent',
       sent_at: now,
       channel: 'email',
+      ...(smtpError
+        ? {
+            error_detail: deliveryErrorMeta(new Error(smtpError), 'smtp', 'send'),
+          }
+        : {}),
     });
 
     await advanceEnrollment(db, enrollment, step.step_number);
