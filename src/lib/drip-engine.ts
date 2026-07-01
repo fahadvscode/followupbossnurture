@@ -784,11 +784,15 @@ export async function autoEnrollContact(contactId: string, tags: string[], sourc
       .single();
 
     if (enrollment) {
-      void sendAiNurtureFirstTouchAfterEnroll({
-        enrollmentId: enrollment.id,
-        contactId,
-        campaignId: campaign.id,
-      });
+      if (campaign.campaign_type === 'ai_nurture') {
+        void sendAiNurtureFirstTouchAfterEnroll({
+          enrollmentId: enrollment.id,
+          contactId,
+          campaignId: campaign.id,
+        });
+      } else {
+        await processDueStepsForEnrollment(enrollment.id);
+      }
     }
   }
 }
