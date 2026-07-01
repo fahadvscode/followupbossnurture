@@ -33,6 +33,11 @@ function sanitizeMinGroups(raw: unknown, groupCount: number): number {
   return groupCount > 0 ? Math.min(n, groupCount) : n;
 }
 
+function sanitizePauseOnSmsReply(raw: unknown): boolean {
+  if (raw === false || raw === 'false' || raw === 0) return false;
+  return true;
+}
+
 function mapStepRow(campaignId: string, step: StepInput) {
   const raw = String(step.step_type || 'sms');
   const step_type = VALID_STEP_TYPES.has(raw) ? raw : 'sms';
@@ -123,6 +128,7 @@ export async function POST(request: NextRequest) {
       trigger_min_groups: sanitizeMinGroups(campaignData.trigger_min_groups, triggerGroups.length),
       status: campaignData.status || 'active',
       twilio_from_number: campaignData.twilio_from_number?.trim() || null,
+      pause_on_sms_reply: sanitizePauseOnSmsReply(campaignData.pause_on_sms_reply),
     })
     .select()
     .single();
@@ -155,6 +161,9 @@ export async function PUT(request: NextRequest) {
       trigger_min_groups: sanitizeMinGroups(updates.trigger_min_groups, triggerGroups.length),
       twilio_from_number: updates.twilio_from_number?.trim() || null,
     };
+  if ('pause_on_sms_reply' in updates) {
+    patch.pause_on_sms_reply = sanitizePauseOnSmsReply(updates.pause_on_sms_reply);
+  }
   if ('folder_id' in updates) {
     const f = updates.folder_id;
     patch.folder_id = f === null || f === '' ? null : String(f);

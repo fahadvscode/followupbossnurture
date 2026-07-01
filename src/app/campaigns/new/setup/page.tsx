@@ -39,6 +39,7 @@ function CampaignSetupForm({ template }: { template?: CampaignTemplate }) {
   const [triggerGroups, setTriggerGroups] = useState<TriggerGroup[]>([]);
   const [triggerMinGroups, setTriggerMinGroups] = useState(2);
   const [twilioFrom, setTwilioFrom] = useState('');
+  const [pauseOnSmsReply, setPauseOnSmsReply] = useState(true);
   const [steps, setSteps] = useState<CampaignStepForm[]>(() => buildInitialSteps(template));
 
   async function handleSave() {
@@ -62,6 +63,7 @@ function CampaignSetupForm({ template }: { template?: CampaignTemplate }) {
         trigger_min_groups: triggerMinGroups,
         status: 'active',
         twilio_from_number: hasSms ? twilioFrom.trim() : null,
+        pause_on_sms_reply: pauseOnSmsReply,
         steps,
       }),
     });
@@ -156,6 +158,25 @@ function CampaignSetupForm({ template }: { template?: CampaignTemplate }) {
                   </span>
                 </label>
                 <TwilioFromSelect value={twilioFrom} onChange={setTwilioFrom} />
+              </div>
+              <div className="rounded-lg border border-border bg-background px-3 py-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pauseOnSmsReply}
+                    onChange={(e) => setPauseOnSmsReply(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-border accent-accent"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">
+                      Stop drip when lead replies by text
+                    </span>
+                    <span className="block text-xs text-muted mt-0.5">
+                      Recommended. When they text back, their enrollment pauses so you can talk live
+                      without more automated touches going out.
+                    </span>
+                  </span>
+                </label>
               </div>
             </CardContent>
           </Card>

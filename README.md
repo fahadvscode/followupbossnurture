@@ -28,6 +28,7 @@ If the project already existed, also run any `supabase/migration_add_*.sql` file
 - `migration_add_fub_action_plan_steps.sql` — action plan column + updated constraint
 - `migration_ai_nurture.sql` — AI nurture engine tables (campaign config, knowledge docs, media, conversations)
 - `migration_add_campaign_folders.sql` — campaign folder sidebar on the Campaigns page
+- `migration_add_pause_on_sms_reply.sql` — per-campaign “stop drip when lead replies by text” (default on)
 
 **Shortcut for older DBs:** if the seed fails with missing columns on `drip_campaign_steps`, run `migration_drip_steps_catchup.sql` once (adds email, task, action-plan columns and the final `step_type` check).
 

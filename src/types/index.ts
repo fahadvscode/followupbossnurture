@@ -86,6 +86,8 @@ export interface DripCampaign {
   campaign_type: CampaignType;
   /** E.164 Twilio number to send this campaign from; null uses TWILIO_PHONE_NUMBER env */
   twilio_from_number: string | null;
+  /** When true (default), inbound SMS reply pauses this campaign for that lead. */
+  pause_on_sms_reply: boolean;
   created_at: string;
   updated_at: string;
 }

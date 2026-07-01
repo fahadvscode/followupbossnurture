@@ -82,6 +82,7 @@ export default function EditCampaignPage() {
   const [triggerGroups, setTriggerGroups] = useState<TriggerGroup[]>([]);
   const [triggerMinGroups, setTriggerMinGroups] = useState(1);
   const [twilioFrom, setTwilioFrom] = useState('');
+  const [pauseOnSmsReply, setPauseOnSmsReply] = useState(true);
   const [steps, setSteps] = useState<CampaignStepForm[]>([]);
 
   useEffect(() => {
@@ -100,6 +101,7 @@ export default function EditCampaignPage() {
           Math.max(1, Number(data.campaign.trigger_min_groups) || 1)
         );
         setTwilioFrom(data.campaign.twilio_from_number || '');
+        setPauseOnSmsReply(data.campaign.pause_on_sms_reply !== false);
         setSteps(
           Array.isArray(data.steps) && data.steps.length > 0
             ? normalizeStepsFromApi(data.steps)
@@ -131,6 +133,7 @@ export default function EditCampaignPage() {
         trigger_groups: triggerGroups,
         trigger_min_groups: triggerMinGroups,
         twilio_from_number: hasSms ? twilioFrom.trim() : null,
+        pause_on_sms_reply: pauseOnSmsReply,
         steps,
       }),
     });
@@ -206,6 +209,24 @@ export default function EditCampaignPage() {
                 </label>
                 <p className="text-xs text-muted mb-1">Required if any touch is SMS.</p>
                 <TwilioFromSelect value={twilioFrom} onChange={setTwilioFrom} />
+              </div>
+              <div className="rounded-lg border border-border bg-background px-3 py-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pauseOnSmsReply}
+                    onChange={(e) => setPauseOnSmsReply(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-border accent-accent"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">
+                      Stop drip when lead replies by text
+                    </span>
+                    <span className="block text-xs text-muted mt-0.5">
+                      Pauses this lead&apos;s enrollment when they reply by SMS so automated touches stop.
+                    </span>
+                  </span>
+                </label>
               </div>
             </CardContent>
           </Card>

@@ -55,7 +55,7 @@ async function handleReply(
 ) {
   const { data: activeRows } = await db
     .from('drip_enrollments')
-    .select('*, campaign:drip_campaigns(name, campaign_type)')
+    .select('*, campaign:drip_campaigns(name, campaign_type, pause_on_sms_reply)')
     .eq('contact_id', contact.id)
     .eq('status', 'active')
     .order('enrolled_at', { ascending: false });
@@ -67,7 +67,7 @@ async function handleReply(
   if (activeList.length === 0) {
     const { data: pausedAi } = await db
       .from('drip_enrollments')
-      .select('*, campaign:drip_campaigns(name, campaign_type)')
+      .select('*, campaign:drip_campaigns(name, campaign_type, pause_on_sms_reply)')
       .eq('contact_id', contact.id)
       .eq('status', 'paused')
       .order('enrolled_at', { ascending: false });
@@ -138,18 +138,22 @@ async function handleReply(
     }
   }
 
-  // Pause only non-AI (standard) enrollments on reply
-  const standardToUpdate = activeList.filter(
-    (e) => !aiHandled.includes(e.id)
-  );
-  if (standardToUpdate.length > 0) {
+  // Pause standard enrollments on SMS reply when the campaign has "stop on reply" enabled
+  const standardToUpdate = activeList.filter((e) => !aiHandled.includes(e.id));
+  const toPause = standardToUpdate.filter((e) => {
+    const camp = e.campaign as { pause_on_sms_reply?: boolean | null } | null;
+    return camp?.pause_on_sms_reply !== false;
+  });
+
+  if (toPause.length > 0 && !isOptOut(body)) {
     const now = new Date().toISOString();
     await db
       .from('drip_enrollments')
       .update({ status: 'paused', paused_at: now })
-      .eq('contact_id', contact.id)
-      .eq('status', 'active')
-      .not('id', 'in', `(${aiHandled.join(',')})`);
+      .in(
+        'id',
+        toPause.map((e) => e.id)
+      );
   }
 
   if (isOptOut(body)) {
@@ -172,7 +176,7 @@ async function handleReply(
   }
 
   if (contact.fub_id) {
-    const names = activeList
+    const names = toPause
       .map((row) => (row.campaign as { name?: string } | null)?.name)
       .filter(Boolean) as string[];
     const campaignLabel =
@@ -184,7 +188,9 @@ async function handleReply(
 
     const replyLabel = campaignLabel
       ? `[SMS Reply · paused: ${campaignLabel}]`
-      : '[SMS Reply]';
+      : activeList.length > 0 && !isOptOut(body)
+        ? '[SMS Reply · drip continues]'
+        : '[SMS Reply]';
 
     pushEvent(contact.fub_id, {
       type: 'incoming_sms',

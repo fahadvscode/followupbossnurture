@@ -134,6 +134,12 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               ? formatPhone(c.twilio_from_number) + ` (${c.twilio_from_number})`
               : 'Default TWILIO_PHONE_NUMBER in env'}
           </p>
+          <p className="text-sm text-muted mt-1">
+            <span className="text-foreground/80">On SMS reply:</span>{' '}
+            {c.pause_on_sms_reply !== false
+              ? 'Pause drip for that lead (recommended)'
+              : 'Keep drip running'}
+          </p>
           <div className="mt-3">
             <CampaignControls campaignId={id} status={c.status} />
           </div>
