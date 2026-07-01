@@ -278,6 +278,20 @@ export async function findDueMessages(): Promise<DueMessage[]> {
   return due;
 }
 
+/** Process all due steps for one enrollment (e.g. right after manual enroll). */
+export async function processDueStepsForEnrollment(
+  enrollmentId: string
+): Promise<{ sent: number; failed: number }> {
+  const { due } = await findDueMessagesWithDiagnostics();
+  let sent = 0;
+  let failed = 0;
+  for (const msg of due.filter((m) => m.enrollment.id === enrollmentId)) {
+    if (await processDueMessage(msg)) sent++;
+    else failed++;
+  }
+  return { sent, failed };
+}
+
 // ─── Dispatch ────────────────────────────────────────────────────────
 
 export async function processDueMessage(msg: DueMessage): Promise<boolean> {

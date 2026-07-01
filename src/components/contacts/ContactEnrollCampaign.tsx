@@ -68,10 +68,7 @@ export function ContactEnrollCampaign({
       }
       setMessage({
         type: 'ok',
-        text:
-          process.env.NODE_ENV === 'development'
-            ? 'Enrolled. Use “Run due drips now” below (or GET /api/cron/send-drips) — local dev has no cron.'
-            : 'Enrolled. Drips run on the cron schedule.',
+        text: 'Enrolled. Click “Run due drips now” below to send immediately, or wait for the cron (every minute on Vercel Pro).',
       });
       setCampaignId('');
       router.refresh();

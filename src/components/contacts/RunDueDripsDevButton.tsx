@@ -7,8 +7,6 @@ export function RunDueDripsDevButton() {
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<string | null>(null);
 
-  if (process.env.NODE_ENV !== 'development') return null;
-
   async function run() {
     setBusy(true);
     setOut(null);
@@ -26,9 +24,10 @@ export function RunDueDripsDevButton() {
   return (
     <div className="space-y-2 rounded-md border border-dashed border-border p-3">
       <p className="text-xs text-muted">
-        Local dev has no Vercel cron. After enrolling, use this to process due steps (same as GET{' '}
+        After enrolling, click below to process due steps immediately (same as the Vercel cron at{' '}
         <code className="text-[11px]">/api/cron/send-drips</code>). The JSON includes{' '}
-        <code className="text-[11px]">diagnostics.skips</code> when a step is not ready or was auto-advanced.
+        <code className="text-[11px]">diagnostics.skips</code> when a step is not ready, blocked, or
+        was auto-advanced.
       </p>
       <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void run()}>
         {busy ? 'Running…' : 'Run due drips now'}

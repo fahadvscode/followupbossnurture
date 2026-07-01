@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
-import { sendAiNurtureFirstTouchAfterEnroll } from '@/lib/drip-engine';
+import { sendAiNurtureFirstTouchAfterEnroll, processDueStepsForEnrollment } from '@/lib/drip-engine';
 
 export async function POST(request: NextRequest) {
   const db = getServiceClient();
@@ -65,6 +65,8 @@ export async function POST(request: NextRequest) {
         contactId: en.contact_id,
         campaignId: en.campaign_id,
       });
+    } else {
+      await processDueStepsForEnrollment(enrollment_id);
     }
 
     return NextResponse.json({ ok: true });
@@ -104,7 +106,9 @@ export async function POST(request: NextRequest) {
       campaignId: campaign_id,
     });
 
-    return NextResponse.json(data);
+    const dripResult = await processDueStepsForEnrollment(data.id);
+
+    return NextResponse.json({ ...data, drip_sent: dripResult.sent, drip_failed: dripResult.failed });
   }
 
   if (action === 'pause') {

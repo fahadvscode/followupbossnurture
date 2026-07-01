@@ -1,13 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findDueMessagesWithDiagnostics, processDueMessage } from '@/lib/drip-engine';
 import { findDueAiFollowUps, findDueAiFirstTouches, sendAiMessage } from '@/lib/ai-engine';
+import { AUTH_COOKIE } from '@/lib/auth';
+import { isValidSessionCookie } from '@/lib/auth-session';
+
+async function authorizeCronRequest(request: NextRequest): Promise<{
+  ok: boolean;
+  manual: boolean;
+}> {
+  const isDev = process.env.NODE_ENV === 'development';
+  if (isDev) return { ok: true, manual: true };
+
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  const authHeader = request.headers.get('authorization')?.trim();
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    return { ok: true, manual: false };
+  }
+
+  const session = request.cookies.get(AUTH_COOKIE)?.value;
+  if (await isValidSessionCookie(session)) {
+    return { ok: true, manual: true };
+  }
+
+  if (!cronSecret) {
+    return { ok: true, manual: false };
+  }
+
+  return { ok: false, manual: false };
+}
 
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = request.headers.get('authorization');
-  const isDev = process.env.NODE_ENV === 'development';
-
-  if (!isDev && cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  const auth = await authorizeCronRequest(request);
+  if (!auth.ok) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -79,7 +103,7 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString(),
     };
 
-    if (isDev) {
+    if (auth.manual) {
       payload.diagnostics = { skips };
     }
 
