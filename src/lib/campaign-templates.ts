@@ -45,6 +45,26 @@ export const CATEGORY_LABELS: Record<CampaignTemplate['category'], string> = {
   other: 'Other',
 };
 
+export function getCampaignTemplateById(id: string): CampaignTemplate | undefined {
+  return CAMPAIGN_TEMPLATES.find((t) => t.id === id);
+}
+
+export function templateChannelCounts(steps: TemplateStep[]) {
+  return {
+    sms: steps.filter((s) => s.step_type === 'sms').length,
+    email: steps.filter((s) => s.step_type === 'email').length,
+    task: steps.filter((s) => s.step_type === 'fub_task' || s.step_type === 'fub_action_plan').length,
+  };
+}
+
+export function templateDurationLabel(steps: TemplateStep[]): string {
+  const maxDays = steps.reduce((max, s) => Math.max(max, s.delay_days), 0);
+  if (maxDays >= 1) return `${maxDays} day${maxDays === 1 ? '' : 's'}`;
+  return 'Same day';
+}
+
+export const TEMPLATE_CATEGORY_ORDER: CampaignTemplate['category'][] = ['other', 'short', 'mid', 'long'];
+
 export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
   // ── Speed-to-Lead ──────────────────────────────────────────────────
   {

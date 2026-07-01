@@ -75,6 +75,7 @@ export interface DripCampaign {
   id: string;
   name: string;
   description: string | null;
+  folder_id: string | null;
   trigger_tags: string[];
   trigger_sources: string[];
   /** Grouped tag triggers; lead must match `trigger_min_groups` of these groups. */
@@ -106,6 +107,14 @@ export type CampaignStepType = 'sms' | 'email' | 'fub_action_plan' | 'fub_task';
 export type EmailBodyFormat = 'plain' | 'html';
 
 export interface DripTemplateFolder {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DripCampaignFolder {
   id: string;
   name: string;
   sort_order: number;

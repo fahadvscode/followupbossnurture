@@ -27,6 +27,7 @@ If the project already existed, also run any `supabase/migration_add_*.sql` file
 - `migration_add_email_steps.sql` — email columns + step_type constraint
 - `migration_add_fub_action_plan_steps.sql` — action plan column + updated constraint
 - `migration_ai_nurture.sql` — AI nurture engine tables (campaign config, knowledge docs, media, conversations)
+- `migration_add_campaign_folders.sql` — campaign folder sidebar on the Campaigns page
 
 **Shortcut for older DBs:** if the seed fails with missing columns on `drip_campaign_steps`, run `migration_drip_steps_catchup.sql` once (adds email, task, action-plan columns and the final `step_type` check).
 
@@ -40,7 +41,8 @@ supabase/seed_7day_sms_email_campaign.sql
 
 **Prebuilt template library:** you can start any new campaign from a proven, multi-channel template (SMS + email + FUB call/follow-up tasks with reminders):
 
-- **In-app:** on **Campaigns → New**, use the **"Start from a template"** picker at the top. Pick one of the 7 templates (grouped Short / Mid / Long / Other) to prefill the name, description, and every touch — then edit steps/triggers, choose a Twilio "from" number, and save.
+- **In-app:** **Campaigns → New Campaign** opens a template gallery. Preview any template’s full touch timeline, then **Use template** (or start from scratch). Campaigns can be organized into **folders** on the main Campaigns page.
+- **Message Library** (sidebar) is for reusable **single SMS/email snippets** when editing individual touches — not full campaigns.
 - **SQL seed:** load all 7 templates at once (created **paused**, each with a unique trigger tag) via:
 
 ```

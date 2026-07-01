@@ -25,7 +25,7 @@ const navItems = [
   { href: '/campaigns', label: 'Campaigns', icon: MessageSquare },
   { href: '/ai-nurture', label: 'AI Nurture', icon: Sparkles },
   { href: '/inbox', label: 'Inbox', icon: Inbox, badge: true },
-  { href: '/templates', label: 'Templates', icon: FileStack },
+  { href: '/templates', label: 'Message Library', icon: FileStack },
   { href: '/intelligence', label: 'Intelligence', icon: Brain },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
 ];

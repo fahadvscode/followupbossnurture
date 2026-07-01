@@ -1,10 +1,6 @@
 import { getServiceClient } from '@/lib/supabase';
-import { CampaignCard } from '@/components/campaigns/CampaignCard';
-import { Button } from '@/components/ui/button';
-import { EmptyState } from '@/components/ui/empty-state';
+import { CampaignsClient } from '@/components/campaigns/CampaignsClient';
 import { formatDripStepDayLabel } from '@/lib/utils';
-import { MessageSquare, Plus } from 'lucide-react';
-import Link from 'next/link';
 import type { DripCampaign } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -43,17 +39,14 @@ export default async function CampaignsPage() {
     }
   }
 
-  const dayLabelsByCampaign = new Map<string, string[]>();
+  const dayLabelsByCampaign: Record<string, string[]> = {};
   for (const [cid, steps] of stepsByCampaign) {
-    dayLabelsByCampaign.set(
-      cid,
-      steps.map((s) =>
-        formatDripStepDayLabel({
-          delay_days: s.delay_days,
-          delay_hours: s.delay_hours,
-          delay_minutes: s.delay_minutes ?? 0,
-        })
-      )
+    dayLabelsByCampaign[cid] = steps.map((s) =>
+      formatDripStepDayLabel({
+        delay_days: s.delay_days,
+        delay_hours: s.delay_hours,
+        delay_minutes: s.delay_minutes ?? 0,
+      })
     );
   }
 
@@ -76,45 +69,13 @@ export default async function CampaignsPage() {
     })
   );
 
-  const statsMap = Object.fromEntries(campaignStats.map(s => [s.campaignId, s]));
+  const statsMap = Object.fromEntries(campaignStats.map((s) => [s.campaignId, s]));
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Campaigns</h1>
-          <p className="text-sm text-muted mt-1">{(campaigns || []).length} drip campaigns</p>
-        </div>
-        <Link href="/campaigns/new">
-          <Button>
-            <Plus size={14} className="mr-2" /> New Campaign
-          </Button>
-        </Link>
-      </div>
-
-      {(campaigns || []).length === 0 ? (
-        <EmptyState
-          icon={MessageSquare}
-          title="No campaigns yet"
-          description="Create your first SMS drip campaign to start engaging leads automatically."
-          action={
-            <Link href="/campaigns/new">
-              <Button>Create Campaign</Button>
-            </Link>
-          }
-        />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(campaigns as DripCampaign[]).map((campaign) => (
-            <CampaignCard
-              key={campaign.id}
-              campaign={campaign}
-              stats={statsMap[campaign.id] || { enrolled: 0, active: 0, messages_sent: 0, replies: 0 }}
-              stepDayLabels={dayLabelsByCampaign.get(campaign.id) || []}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    <CampaignsClient
+      initialCampaigns={(campaigns as DripCampaign[]) || []}
+      statsMap={statsMap}
+      dayLabelsByCampaign={dayLabelsByCampaign}
+    />
   );
 }

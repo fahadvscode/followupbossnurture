@@ -384,10 +384,11 @@ export default function TemplatesClient() {
 
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Message templates</h1>
+          <h1 className="text-2xl font-bold text-foreground">Message Library</h1>
           <p className="text-sm text-muted mt-1 max-w-xl">
-            Organize SMS and email templates in folders, then pick them from each campaign touch. Merge
-            tags: {'{first_name}'}, {'{project}'}, etc. HTML emails need absolute image URLs.
+            Reusable SMS and email snippets for individual campaign touches — not full campaigns.
+            Organize in folders, then pick from each step in the campaign editor. Merge tags:{' '}
+            {'{first_name}'}, {'{project}'}, etc.
           </p>
         </div>
         <Button type="button" onClick={startCreate} variant="secondary">

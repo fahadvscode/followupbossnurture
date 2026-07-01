@@ -85,10 +85,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ campaign, steps });
   }
 
-  const { data: campaigns } = await db
-    .from('drip_campaigns')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const folderId = request.nextUrl.searchParams.get('folder_id');
+  let query = db.from('drip_campaigns').select('*').order('created_at', { ascending: false });
+  if (folderId === 'unfiled') {
+    query = query.is('folder_id', null);
+  } else if (folderId) {
+    query = query.eq('folder_id', folderId);
+  }
+
+  const { data: campaigns } = await query;
 
   return NextResponse.json({ campaigns });
 }
@@ -100,11 +105,18 @@ export async function POST(request: NextRequest) {
   const { steps, ...campaignData } = body;
 
   const triggerGroups = sanitizeTriggerGroups(campaignData.trigger_groups);
+  const folderRaw = campaignData.folder_id;
+  const folder_id =
+    folderRaw === null || folderRaw === '' || folderRaw === undefined
+      ? null
+      : String(folderRaw);
+
   const { data: campaign, error } = await db
     .from('drip_campaigns')
     .insert({
       name: campaignData.name,
       description: campaignData.description,
+      folder_id,
       trigger_tags: campaignData.trigger_tags || [],
       trigger_sources: campaignData.trigger_sources || [],
       trigger_groups: triggerGroups,
@@ -133,9 +145,7 @@ export async function PUT(request: NextRequest) {
   const { id, steps, ...updates } = body;
 
   const triggerGroups = sanitizeTriggerGroups(updates.trigger_groups);
-  const { error } = await db
-    .from('drip_campaigns')
-    .update({
+  const patch: Record<string, unknown> = {
       name: updates.name,
       description: updates.description,
       status: updates.status,
@@ -144,7 +154,15 @@ export async function PUT(request: NextRequest) {
       trigger_groups: triggerGroups,
       trigger_min_groups: sanitizeMinGroups(updates.trigger_min_groups, triggerGroups.length),
       twilio_from_number: updates.twilio_from_number?.trim() || null,
-    })
+    };
+  if ('folder_id' in updates) {
+    const f = updates.folder_id;
+    patch.folder_id = f === null || f === '' ? null : String(f);
+  }
+
+  const { error } = await db
+    .from('drip_campaigns')
+    .update(patch)
     .eq('id', id);
 
   if (error) {
@@ -166,13 +184,23 @@ export async function PUT(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const db = getServiceClient();
   const body = await request.json();
-  const { id, status } = body;
+  const { id, status, folder_id } = body;
 
-  if (!id || !status) {
-    return NextResponse.json({ error: 'id and status required' }, { status: 400 });
+  if (!id) {
+    return NextResponse.json({ error: 'id required' }, { status: 400 });
   }
 
-  const { error } = await db.from('drip_campaigns').update({ status }).eq('id', id);
+  const updates: Record<string, unknown> = {};
+  if (status) updates.status = status;
+  if ('folder_id' in body) {
+    updates.folder_id = folder_id === null || folder_id === '' ? null : String(folder_id);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+  }
+
+  const { error } = await db.from('drip_campaigns').update(updates).eq('id', id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
