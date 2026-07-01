@@ -1,4 +1,5 @@
 import type { CampaignStepForm } from '@/components/campaigns/StepEditor';
+import { PRECON_CAMPAIGN_TEMPLATES } from '@/lib/campaign-templates-precon';
 
 /** A prebuilt drip campaign the user can start from (in-app picker) or seed via SQL. */
 export interface CampaignTemplate {
@@ -482,4 +483,6 @@ export const CAMPAIGN_TEMPLATES: CampaignTemplate[] = [
       }),
     ],
   },
+
+  ...PRECON_CAMPAIGN_TEMPLATES,
 ];

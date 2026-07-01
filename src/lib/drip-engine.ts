@@ -68,11 +68,23 @@ function resolveFubTaskAssignee(
 }
 
 function templateVars(contact: DripContact, campaignName: string): Record<string, string> {
+  const cf = contact.custom_fields || {};
+  const city =
+    (typeof cf.city === 'string' ? cf.city : '') ||
+    (typeof cf.City === 'string' ? cf.City : '') ||
+    '';
+  const project = contact.source_detail || campaignName;
   return {
     first_name: contact.first_name || '',
     last_name: contact.last_name || '',
-    project: contact.source_detail || campaignName,
+    project,
+    project_name: project,
     campaign: campaignName,
+    city,
+    qikfill_link:
+      process.env.QIKFILL_LINK?.trim() || process.env.BOOKING_LINK?.trim() || '',
+    agent_phone:
+      process.env.AGENT_PHONE?.trim() || process.env.TWILIO_PHONE_NUMBER?.trim() || '',
   };
 }
 

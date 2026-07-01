@@ -51,6 +51,14 @@ supabase/seed_campaign_templates.sql
 
 Both cover the same templates: Speed-to-Lead, 7-Day ISA Blitz, 30-Day Nurture, 90-Day Nurture, Open-House Follow-Up, Past-Client / Sphere, and Cold-Lead Re-Engagement. Run `migration_drip_steps_catchup.sql` first if the seed reports missing columns.
 
+**Pre-con Facebook lead system** (Fahad Javed multi-project angle — 7-Day Fast Start → 14-Day Warm-Up → Monthly Keep-in-Touch):
+
+```
+supabase/seed_precon_campaign_templates.sql
+```
+
+Uses merge fields `{first_name}`, `{project}`, `{city}`, `{qikfill_link}`, `{agent_phone}`. Set **`QIKFILL_LINK`** (or **`BOOKING_LINK`**) and **`AGENT_PHONE`** in env; store lead city in FUB custom field `city` (synced to `custom_fields`).
+
 ### 2. Configure environment variables
 
 Copy `.env.local` and fill in missing values:

@@ -371,7 +371,7 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
               <label className="block text-xs text-muted mb-1">
                 SMS message
                 <span className="text-muted/60 ml-1">
-                  {'{first_name}'} {'{last_name}'} {'{project}'} {'{campaign}'}
+                  {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{qikfill_link}'} {'{agent_phone}'}
                 </span>
               </label>
               <Textarea
@@ -447,7 +447,7 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
                 <label className="block text-xs text-muted mb-1">
                   {step.email_body_format === 'html' ? 'Email body (HTML)' : 'Email body (plain text)'}
                   <span className="text-muted/60 ml-1">
-                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{campaign}'}
+                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{qikfill_link}'} {'{agent_phone}'}
                   </span>
                 </label>
                 <Textarea
@@ -580,7 +580,7 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
                 <label className="block text-xs text-muted mb-1">
                   Task name
                   <span className="text-muted/60 ml-1">
-                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{campaign}'}
+                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{qikfill_link}'} {'{agent_phone}'}
                   </span>
                 </label>
                 <Input
