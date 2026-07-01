@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { StepEditor, defaultCampaignStep, type CampaignStepForm } from '@/components/campaigns/StepEditor';
 import { TwilioFromSelect } from '@/components/campaigns/TwilioFromSelect';
 import { TriggerGroupEditor } from '@/components/campaigns/TriggerGroupEditor';
+import { TemplatePicker } from '@/components/campaigns/TemplatePicker';
+import type { CampaignTemplate } from '@/lib/campaign-templates';
 import type { TriggerGroup } from '@/types';
 import { ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
@@ -33,9 +35,19 @@ export default function NewCampaignPage() {
   const [triggerGroups, setTriggerGroups] = useState<TriggerGroup[]>([]);
   const [triggerMinGroups, setTriggerMinGroups] = useState(2);
   const [twilioFrom, setTwilioFrom] = useState('');
+  const [templateId, setTemplateId] = useState<string | null>(null);
   const [steps, setSteps] = useState<CampaignStepForm[]>([
     defaultCampaignStep({ step_number: 1 }),
   ]);
+
+  function applyTemplate(template: CampaignTemplate) {
+    setTemplateId(template.id);
+    if (!name.trim()) setName(template.name);
+    if (!description.trim()) setDescription(template.description);
+    setSteps(
+      template.steps.map((s, i) => defaultCampaignStep({ ...s, step_number: i + 1 }))
+    );
+  }
 
   async function handleSave() {
     if (!name.trim() || !stepsAreValid(steps)) return;
@@ -77,6 +89,8 @@ export default function NewCampaignPage() {
       </Link>
 
       <h1 className="text-2xl font-bold text-foreground mb-6">Create Campaign</h1>
+
+      <TemplatePicker onSelect={applyTemplate} selectedId={templateId} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-6">

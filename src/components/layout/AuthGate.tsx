@@ -31,17 +31,21 @@ export function AuthGate() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
-      <div className="w-full max-w-sm min-w-0">
+    <div className="relative min-h-screen flex items-center justify-center bg-background px-4 py-8 overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,rgba(59,130,246,0.12),transparent_70%)]"
+      />
+      <div className="relative w-full max-w-sm min-w-0">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 bg-accent rounded-2xl flex items-center justify-center mb-4">
+          <div className="w-14 h-14 bg-accent rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-accent/25">
             <Zap size={28} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">Drip Engine</h1>
           <p className="text-sm text-muted mt-1">FUB SMS Campaign Platform</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-card border border-border rounded-xl p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="bg-card border border-border rounded-xl p-6 space-y-4 shadow-xl shadow-black/20">
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1.5">
               Password
@@ -64,7 +68,7 @@ export function AuthGate() {
           <button
             type="submit"
             disabled={loading || !password}
-            className="w-full bg-accent text-white rounded-lg py-2.5 text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
+            className="w-full bg-accent text-white rounded-lg py-2.5 text-sm font-medium hover:bg-accent-hover active:scale-[0.98] transition-all disabled:opacity-50"
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </button>

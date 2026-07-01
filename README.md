@@ -38,6 +38,17 @@ This creates all `drip_*` tables (won't touch your existing tables).
 supabase/seed_7day_sms_email_campaign.sql
 ```
 
+**Prebuilt template library:** you can start any new campaign from a proven, multi-channel template (SMS + email + FUB call/follow-up tasks with reminders):
+
+- **In-app:** on **Campaigns → New**, use the **"Start from a template"** picker at the top. Pick one of the 7 templates (grouped Short / Mid / Long / Other) to prefill the name, description, and every touch — then edit steps/triggers, choose a Twilio "from" number, and save.
+- **SQL seed:** load all 7 templates at once (created **paused**, each with a unique trigger tag) via:
+
+```
+supabase/seed_campaign_templates.sql
+```
+
+Both cover the same templates: Speed-to-Lead, 7-Day ISA Blitz, 30-Day Nurture, 90-Day Nurture, Open-House Follow-Up, Past-Client / Sphere, and Cold-Lead Re-Engagement. Run `migration_drip_steps_catchup.sql` first if the seed reports missing columns.
+
 ### 2. Configure environment variables
 
 Copy `.env.local` and fill in missing values:

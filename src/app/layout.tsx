@@ -47,7 +47,7 @@ export default async function RootLayout({
       <body className="min-h-full">
         <Sidebar />
         <main className="min-h-screen min-w-0 lg:ml-64">
-          <div className="min-w-0 p-4 pt-14 sm:p-6 sm:pt-14 lg:p-8 lg:pt-8">{children}</div>
+          <div className="mx-auto min-w-0 max-w-[1600px] p-4 pt-16 sm:p-6 sm:pt-16 lg:p-8 lg:pt-8">{children}</div>
         </main>
       </body>
     </html>
