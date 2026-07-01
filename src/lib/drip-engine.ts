@@ -748,7 +748,13 @@ function campaignTriggersForContact(
   if (usableGroups.length > 0) {
     const minGroups = Math.max(1, Number(campaign.trigger_min_groups) || 1);
     const required = Math.min(minGroups, usableGroups.length);
-    return countMatchedGroups(contactTags, usableGroups) >= required;
+    const groupsMatch = countMatchedGroups(contactTags, usableGroups) >= required;
+    const tagMatch = (campaign.trigger_tags || []).some((tr) => hasExactTag(contactTags, tr));
+    const sourceMatch = (campaign.trigger_sources || []).some(
+      (s) => s.toLowerCase() === (sourceCategory || '').toLowerCase()
+    );
+    // Groups use AND-style logic; tags/sources still enroll on any single match.
+    return groupsMatch || tagMatch || sourceMatch;
   }
 
   const tagMatch = (campaign.trigger_tags || []).some((tr) => hasExactTag(contactTags, tr));
@@ -765,6 +771,13 @@ export type AutoEnrollOptions = {
   webhookEvent?: string;
   /** True when the last sync found a fresh inquiry event/note from FUB (e.g. new Zapier lead ad). */
   hasNewInquiry?: boolean;
+};
+
+export type AutoEnrollResult = {
+  enrolled: { campaignId: string; campaignName: string; action: 'created' | 'restarted' }[];
+  skipped: { campaignId: string; campaignName: string; reason: string }[];
+  /** Active campaigns whose triggers did not match this contact's tags/source. */
+  unmatched: { campaignId: string; campaignName: string; matchedGroups: number; requiredGroups: number }[];
 };
 
 function campaignNewlyMatches(
@@ -812,15 +825,16 @@ export async function autoEnrollContact(
   tags: string[],
   sourceCategory: string,
   options: AutoEnrollOptions = {}
-) {
+): Promise<AutoEnrollResult> {
   const db = getServiceClient();
+  const result: AutoEnrollResult = { enrolled: [], skipped: [], unmatched: [] };
 
   const { data: campaigns } = await db
     .from('drip_campaigns')
     .select('*')
     .eq('status', 'active');
 
-  if (!campaigns) return;
+  if (!campaigns) return result;
 
   const normalizedTags = Array.isArray(tags) ? tags : [];
   const previousTags = Array.isArray(options.previousTags) ? options.previousTags : [];
@@ -831,7 +845,21 @@ export async function autoEnrollContact(
 
   for (const campaign of campaigns) {
     const matchesNow = campaignTriggersForContact(campaign, normalizedTags, sourceCategory);
-    if (!matchesNow) continue;
+    if (!matchesNow) {
+      const groups = Array.isArray(campaign.trigger_groups) ? campaign.trigger_groups : [];
+      const usableGroups = groups.filter(
+        (g: TriggerGroup) => Array.isArray(g?.tags) && g.tags.length > 0
+      );
+      const minGroups = Math.max(1, Number(campaign.trigger_min_groups) || 1);
+      const required = usableGroups.length > 0 ? Math.min(minGroups, usableGroups.length) : 0;
+      result.unmatched.push({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        matchedGroups: usableGroups.length > 0 ? countMatchedGroups(normalizedTags, usableGroups) : 0,
+        requiredGroups: required,
+      });
+      continue;
+    }
 
     const freshlyMatched =
       campaignNewlyMatches(campaign, normalizedTags, sourceCategory, previousTags, previousSource) ||
@@ -847,9 +875,28 @@ export async function autoEnrollContact(
       .maybeSingle();
 
     if (existing) {
-      if (existing.status === 'opted_out') continue;
-      if (!freshlyMatched) continue;
+      if (existing.status === 'opted_out') {
+        result.skipped.push({
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          reason: 'opted_out',
+        });
+        continue;
+      }
+      if (!freshlyMatched) {
+        result.skipped.push({
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          reason: 'already_enrolled',
+        });
+        continue;
+      }
       await restartEnrollmentForCampaign(db, existing.id, contactId, campaign);
+      result.enrolled.push({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        action: 'restarted',
+      });
       continue;
     }
 
@@ -875,6 +922,13 @@ export async function autoEnrollContact(
       } else {
         await processDueStepsForEnrollment(enrollment.id);
       }
+      result.enrolled.push({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        action: 'created',
+      });
     }
   }
+
+  return result;
 }

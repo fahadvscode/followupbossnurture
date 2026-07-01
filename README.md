@@ -93,7 +93,7 @@ Push to GitHub and connect to Vercel. Add all env vars in Vercel dashboard. The 
 
 After deploying, configure:
 
-- **Follow Up Boss webhook**: Go to FUB Settings > Webhooks, point `peopleCreated` and `peopleUpdated` to `https://your-domain.vercel.app/api/webhooks/fub`
+- **Follow Up Boss integration**: Open **Settings** in the app sidebar. Auto-sync runs every minute via cron (uses `FUB_API_KEY` only). For instant sync, register your system at [apps.followupboss.com/system-registration](https://apps.followupboss.com/system-registration), add `FUB_SYSTEM_NAME` + `FUB_SYSTEM_KEY` to Vercel, redeploy, then click **Register all FUB webhooks** on the Settings page. Webhook URL: `https://your-domain.vercel.app/api/webhooks/fub` (events: `peopleCreated`, `peopleUpdated`, `peopleTagsCreated`, `eventsCreated`).
 - **Twilio SMS webhook**: In your Twilio phone number config, set the incoming message webhook to `https://your-domain.vercel.app/api/webhooks/twilio/inbound`
 
 ## Features

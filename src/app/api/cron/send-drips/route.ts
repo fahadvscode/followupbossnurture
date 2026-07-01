@@ -5,6 +5,7 @@ import { AUTH_COOKIE } from '@/lib/auth';
 import { isValidSessionCookie } from '@/lib/auth-session';
 import { getServiceClient } from '@/lib/supabase';
 import { summarizeErrorDetail } from '@/lib/delivery-error-meta';
+import { syncRecentFubLeads } from '@/lib/fub-recent-sync';
 
 async function authorizeCronRequest(request: NextRequest): Promise<{
   ok: boolean;
@@ -38,6 +39,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // ── Auto-import recent FUB leads (works without webhooks) ─────────
+    let fubSynced = 0;
+    let fubEnrolled = 0;
+    try {
+      const fub = await syncRecentFubLeads();
+      fubSynced = fub.synced;
+      fubEnrolled = fub.enrolled;
+    } catch (fubErr) {
+      console.error('FUB recent sync error:', fubErr);
+    }
+
     // ── Standard drip campaigns ──────────────────────────────────────
     const { due: dueMessages, skips } = await findDueMessagesWithDiagnostics();
 
@@ -132,6 +144,8 @@ export async function GET(request: NextRequest) {
     }
 
     const payload: Record<string, unknown> = {
+      fub_leads_synced: fubSynced,
+      fub_enrollments: fubEnrolled,
       processed: dueMessages.length,
       sent,
       failed,

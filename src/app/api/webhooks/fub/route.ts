@@ -1,46 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
-import { syncFubPersonDeep } from '@/lib/fub-person-sync';
-import { autoEnrollContact } from '@/lib/drip-engine';
-import { extractFubWebhookPersonIds } from '@/lib/fub-webhook';
+import { syncFubPersonAndEnroll, type FubSyncEnrollResult } from '@/lib/fub-sync-and-enroll';
+import type { AutoEnrollResult } from '@/lib/drip-engine';
+import { resolveFubWebhookPersonIds } from '@/lib/fub-webhook';
 
-async function processFubPerson(
-  db: ReturnType<typeof getServiceClient>,
-  personId: number,
-  webhookEvent?: string
-) {
-  const { data: beforeRow } = await db
-    .from('drip_contacts')
-    .select('tags, source_category')
-    .eq('fub_id', personId)
-    .maybeSingle();
+/** Zapier often adds tags after FUB fires peopleCreated; brief wait lets tags land. */
+const PEOPLE_CREATED_TAG_SETTLE_MS = 4500;
 
-  const previousTags = (beforeRow?.tags as string[]) || [];
-  const previousSourceCategory = (beforeRow?.source_category as string) || '';
-
-  const { contactId, opted_out, hasNewInquiry } = await syncFubPersonDeep(db, personId);
-
-  const { data: contact } = await db
-    .from('drip_contacts')
-    .select('tags, source_category')
-    .eq('id', contactId)
-    .single();
-
-  if (!opted_out && contact) {
-    await autoEnrollContact(
-      contactId,
-      (contact.tags as string[]) || [],
-      (contact.source_category as string) || 'Other',
-      {
-        previousTags,
-        previousSourceCategory,
-        webhookEvent,
-        hasNewInquiry,
-      }
-    );
-  }
-
-  return contactId;
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function POST(request: NextRequest) {
@@ -48,7 +16,11 @@ export async function POST(request: NextRequest) {
   const db = getServiceClient();
   const webhookEvent = typeof body.event === 'string' ? body.event : undefined;
 
-  const personIds = extractFubWebhookPersonIds(body);
+  if (webhookEvent === 'peopleCreated') {
+    await sleep(PEOPLE_CREATED_TAG_SETTLE_MS);
+  }
+
+  const personIds = await resolveFubWebhookPersonIds(body);
 
   if (personIds.length === 0) {
     return NextResponse.json({ error: 'No person ID' }, { status: 400 });
@@ -57,10 +29,19 @@ export async function POST(request: NextRequest) {
   try {
     const contactIds: string[] = [];
     const errors: string[] = [];
+    const enrollments: AutoEnrollResult[] = [];
+    const syncedTags: string[][] = [];
 
     for (const personId of personIds) {
       try {
-        contactIds.push(await processFubPerson(db, personId, webhookEvent));
+        const { contactId, enroll, tags }: FubSyncEnrollResult = await syncFubPersonAndEnroll(
+          db,
+          personId,
+          webhookEvent
+        );
+        contactIds.push(contactId);
+        enrollments.push(enroll);
+        syncedTags.push(tags);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Sync failed';
         console.error(`FUB webhook person ${personId}:`, err);
@@ -87,6 +68,8 @@ export async function POST(request: NextRequest) {
       ok: true,
       event: webhookEvent,
       contactIds,
+      tags: syncedTags,
+      enrollments,
       ...(errors.length ? { partialErrors: errors } : {}),
     });
   } catch (error) {

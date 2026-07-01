@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Inbox,
+  Settings,
 } from 'lucide-react';
 
 const navItems = [
@@ -28,6 +29,7 @@ const navItems = [
   { href: '/templates', label: 'Message Library', icon: FileStack },
   { href: '/intelligence', label: 'Intelligence', icon: Brain },
   { href: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export function Sidebar() {

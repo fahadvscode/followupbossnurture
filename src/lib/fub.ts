@@ -26,6 +26,20 @@ export function isFubApiConfigured(): boolean {
   return Boolean(getFubApiKey());
 }
 
+function getFubSystemHeaders(): { system: string; key: string } | null {
+  const system =
+    process.env.FUB_SYSTEM_NAME?.trim() ||
+    process.env.FUB_SYSTEM?.trim() ||
+    '';
+  const key = process.env.FUB_SYSTEM_KEY?.trim() || '';
+  if (!system || !key) return null;
+  return { system, key };
+}
+
+export function isFubWebhookAdminConfigured(): boolean {
+  return isFubApiConfigured() && getFubSystemHeaders() != null;
+}
+
 function getAuthHeader(): string {
   const key = getFubApiKey();
   if (!key) {
@@ -52,6 +66,21 @@ async function fubFetch(endpoint: string, options: RequestInit = {}) {
   }
 
   return res.json();
+}
+
+async function fubWebhookAdminFetch(endpoint: string, options: RequestInit = {}) {
+  const sys = getFubSystemHeaders();
+  if (!sys) {
+    throw new Error('FUB_SYSTEM_NAME and FUB_SYSTEM_KEY are required for webhook management');
+  }
+  return fubFetch(endpoint, {
+    ...options,
+    headers: {
+      'X-System': sys.system,
+      'X-System-Key': sys.key,
+      ...(options.headers as Record<string, string> | undefined),
+    },
+  });
 }
 
 export async function getPeople(params: {
@@ -91,6 +120,21 @@ export async function searchPeopleByEmail(email: string): Promise<FUBPerson[]> {
   return data.people || [];
 }
 
+/** Recently changed FUB people (for cron auto-sync when webhooks are not registered). */
+export async function getRecentlyUpdatedPeople(
+  limit = 40
+): Promise<Array<{ id: number; updated?: string; created?: string }>> {
+  const params = new URLSearchParams({
+    sort: '-updated',
+    limit: String(Math.min(100, Math.max(1, limit))),
+    fields: 'id,updated,created',
+  });
+  const data = (await fubFetch(`/people?${params}`)) as {
+    people?: Array<{ id: number; updated?: string; created?: string }>;
+  };
+  return data.people || [];
+}
+
 function coercePersonRecord(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== 'object') {
     throw new Error('Invalid FUB person payload');
@@ -112,6 +156,34 @@ function coercePersonRecord(data: unknown): Record<string, unknown> {
 export async function getPersonByIdFull(id: number): Promise<Record<string, unknown>> {
   const data = await fubFetch(`/people/${id}?fields=allFields`);
   return coercePersonRecord(data);
+}
+
+export async function getEventById(id: number): Promise<{ personId?: number }> {
+  const data = (await fubFetch(`/events/${id}`)) as {
+    event?: { personId?: number };
+    events?: { personId?: number }[];
+    personId?: number;
+  };
+  if (data.event && typeof data.event.personId === 'number') return { personId: data.event.personId };
+  if (Array.isArray(data.events) && data.events[0]?.personId != null) {
+    return { personId: data.events[0].personId };
+  }
+  if (typeof data.personId === 'number') return { personId: data.personId };
+  throw new Error(`FUB event ${id} missing personId`);
+}
+
+export async function getNoteById(id: number): Promise<{ personId?: number }> {
+  const data = (await fubFetch(`/notes/${id}`)) as {
+    note?: { personId?: number };
+    notes?: { personId?: number }[];
+    personId?: number;
+  };
+  if (data.note && typeof data.note.personId === 'number') return { personId: data.note.personId };
+  if (Array.isArray(data.notes) && data.notes[0]?.personId != null) {
+    return { personId: data.notes[0].personId };
+  }
+  if (typeof data.personId === 'number') return { personId: data.personId };
+  throw new Error(`FUB note ${id} missing personId`);
 }
 
 export async function listAllNotesForPerson(
@@ -327,9 +399,27 @@ export async function applyActionPlan(personId: number, actionPlanId: number): P
   });
 }
 
-export async function subscribeWebhook(url: string, event: string) {
-  return fubFetch('/webhooks', {
+export async function listFubWebhooks(): Promise<
+  Array<{ id: number; event: string; status: string; url: string }>
+> {
+  const data = (await fubWebhookAdminFetch('/webhooks?limit=100')) as {
+    webhooks?: Array<{ id: number; event: string; status: string; url: string }>;
+  };
+  return data.webhooks || [];
+}
+
+export async function registerFubWebhook(url: string, event: string) {
+  return fubWebhookAdminFetch('/webhooks', {
     method: 'POST',
     body: JSON.stringify({ url, event }),
   });
+}
+
+export async function deleteFubWebhook(id: number) {
+  return fubWebhookAdminFetch(`/webhooks/${id}`, { method: 'DELETE' });
+}
+
+/** @deprecated Use registerFubWebhook */
+export async function subscribeWebhook(url: string, event: string) {
+  return registerFubWebhook(url, event);
 }
