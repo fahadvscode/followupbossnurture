@@ -4,7 +4,20 @@ import { syncFubPersonDeep } from '@/lib/fub-person-sync';
 import { autoEnrollContact } from '@/lib/drip-engine';
 import { extractFubWebhookPersonIds } from '@/lib/fub-webhook';
 
-async function processFubPerson(db: ReturnType<typeof getServiceClient>, personId: number) {
+async function processFubPerson(
+  db: ReturnType<typeof getServiceClient>,
+  personId: number,
+  webhookEvent?: string
+) {
+  const { data: beforeRow } = await db
+    .from('drip_contacts')
+    .select('tags, source_category')
+    .eq('fub_id', personId)
+    .maybeSingle();
+
+  const previousTags = (beforeRow?.tags as string[]) || [];
+  const previousSourceCategory = (beforeRow?.source_category as string) || '';
+
   const { contactId, opted_out } = await syncFubPersonDeep(db, personId);
 
   const { data: contact } = await db
@@ -17,7 +30,12 @@ async function processFubPerson(db: ReturnType<typeof getServiceClient>, personI
     await autoEnrollContact(
       contactId,
       (contact.tags as string[]) || [],
-      contact.source_category as string
+      (contact.source_category as string) || 'Other',
+      {
+        previousTags,
+        previousSourceCategory,
+        webhookEvent,
+      }
     );
   }
 
@@ -27,6 +45,7 @@ async function processFubPerson(db: ReturnType<typeof getServiceClient>, personI
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const db = getServiceClient();
+  const webhookEvent = typeof body.event === 'string' ? body.event : undefined;
 
   const personIds = extractFubWebhookPersonIds(body);
 
@@ -40,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     for (const personId of personIds) {
       try {
-        contactIds.push(await processFubPerson(db, personId));
+        contactIds.push(await processFubPerson(db, personId, webhookEvent));
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Sync failed';
         console.error(`FUB webhook person ${personId}:`, err);
@@ -65,6 +84,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      event: webhookEvent,
       contactIds,
       ...(errors.length ? { partialErrors: errors } : {}),
     });

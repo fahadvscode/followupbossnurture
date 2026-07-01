@@ -76,6 +76,15 @@ export async function POST(request: NextRequest) {
   const db = getServiceClient();
 
   try {
+    const { data: beforeRow } = await db
+      .from('drip_contacts')
+      .select('tags, source_category')
+      .eq('fub_id', fubId)
+      .maybeSingle();
+
+    const previousTags = (beforeRow?.tags as string[]) || [];
+    const previousSourceCategory = (beforeRow?.source_category as string) || '';
+
     const { contactId, opted_out } = await syncFubPersonDeep(db, fubId);
 
     const { data: contact } = await db
@@ -88,7 +97,8 @@ export async function POST(request: NextRequest) {
       await autoEnrollContact(
         contactId,
         (contact.tags as string[]) || [],
-        (contact.source_category as string) || 'Other'
+        (contact.source_category as string) || 'Other',
+        { previousTags, previousSourceCategory }
       );
     }
 

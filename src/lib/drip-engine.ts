@@ -747,7 +747,59 @@ function campaignTriggersForContact(
   return tagMatch || sourceMatch;
 }
 
-export async function autoEnrollContact(contactId: string, tags: string[], sourceCategory: string) {
+export type AutoEnrollOptions = {
+  /** Tags before this sync (webhook / refresh) — used to detect re-inquiries. */
+  previousTags?: string[];
+  previousSourceCategory?: string;
+  webhookEvent?: string;
+};
+
+function campaignNewlyMatches(
+  campaign: Parameters<typeof campaignTriggersForContact>[0],
+  tags: string[],
+  sourceCategory: string,
+  previousTags: string[],
+  previousSourceCategory: string
+): boolean {
+  if (!campaignTriggersForContact(campaign, tags, sourceCategory)) return false;
+  return !campaignTriggersForContact(campaign, previousTags, previousSourceCategory);
+}
+
+async function restartEnrollmentForCampaign(
+  db: ReturnType<typeof getServiceClient>,
+  enrollmentId: string,
+  contactId: string,
+  campaign: { id: string; campaign_type?: string | null }
+) {
+  const now = new Date().toISOString();
+  await db
+    .from('drip_enrollments')
+    .update({
+      status: 'active',
+      current_step: 0,
+      paused_at: null,
+      completed_at: null,
+      enrolled_at: now,
+    })
+    .eq('id', enrollmentId);
+
+  if (campaign.campaign_type === 'ai_nurture') {
+    void sendAiNurtureFirstTouchAfterEnroll({
+      enrollmentId,
+      contactId,
+      campaignId: campaign.id,
+    });
+  } else {
+    await processDueStepsForEnrollment(enrollmentId);
+  }
+}
+
+export async function autoEnrollContact(
+  contactId: string,
+  tags: string[],
+  sourceCategory: string,
+  options: AutoEnrollOptions = {}
+) {
   const db = getServiceClient();
 
   const { data: campaigns } = await db
@@ -758,18 +810,33 @@ export async function autoEnrollContact(contactId: string, tags: string[], sourc
   if (!campaigns) return;
 
   const normalizedTags = Array.isArray(tags) ? tags : [];
+  const previousTags = Array.isArray(options.previousTags) ? options.previousTags : [];
+  const previousSource = options.previousSourceCategory || '';
+  const isNewPersonEvent = options.webhookEvent === 'peopleCreated';
+  const isTagEvent = options.webhookEvent === 'peopleTagsCreated';
 
   for (const campaign of campaigns) {
-    if (!campaignTriggersForContact(campaign, normalizedTags, sourceCategory)) continue;
+    const matchesNow = campaignTriggersForContact(campaign, normalizedTags, sourceCategory);
+    if (!matchesNow) continue;
+
+    const freshlyMatched =
+      campaignNewlyMatches(campaign, normalizedTags, sourceCategory, previousTags, previousSource) ||
+      isNewPersonEvent ||
+      isTagEvent;
 
     const { data: existing } = await db
       .from('drip_enrollments')
-      .select('id')
+      .select('id, status')
       .eq('contact_id', contactId)
       .eq('campaign_id', campaign.id)
       .maybeSingle();
 
-    if (existing) continue;
+    if (existing) {
+      if (existing.status === 'opted_out') continue;
+      if (!freshlyMatched) continue;
+      await restartEnrollmentForCampaign(db, existing.id, contactId, campaign);
+      continue;
+    }
 
     const { data: enrollment } = await db
       .from('drip_enrollments')
