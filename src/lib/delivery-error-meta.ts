@@ -45,6 +45,19 @@ export function deliveryErrorMeta(
   return { source, phase, message: String(error) };
 }
 
+/** Twilio 21408 — destination region disabled in Geo Permissions (not retryable). */
+export function isTwilioGeoBlockedError(error: unknown): boolean {
+  const meta = deliveryErrorMeta(error, 'twilio', 'send');
+  const code = meta.code;
+  if (code === 21408 || code === '21408') return true;
+  const msg = meta.message.toLowerCase();
+  return (
+    msg.includes('21408') ||
+    msg.includes('permission to send an sms has not been enabled for the region') ||
+    msg.includes('permissions disabled for the destination region')
+  );
+}
+
 /** One-line + expandable JSON for dashboard / UI */
 export function summarizeErrorDetail(d: unknown): string {
   if (!d || typeof d !== 'object') return '';

@@ -9,7 +9,7 @@ import {
   applyActionPlan,
 } from './fub';
 import { normalizePhone, formatDripStepDayLabel } from './utils';
-import { deliveryErrorMeta } from './delivery-error-meta';
+import { deliveryErrorMeta, isTwilioGeoBlockedError } from './delivery-error-meta';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendAiMessage } from './ai-engine';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
@@ -282,12 +282,24 @@ export async function findDueMessages(): Promise<DueMessage[]> {
 export async function processDueStepsForEnrollment(
   enrollmentId: string
 ): Promise<{ sent: number; failed: number }> {
-  const { due } = await findDueMessagesWithDiagnostics();
   let sent = 0;
   let failed = 0;
-  for (const msg of due.filter((m) => m.enrollment.id === enrollmentId)) {
-    if (await processDueMessage(msg)) sent++;
-    else failed++;
+  for (let guard = 0; guard < 20; guard++) {
+    const { due } = await findDueMessagesWithDiagnostics();
+    const batch = due.filter((m) => m.enrollment.id === enrollmentId);
+    if (batch.length === 0) break;
+
+    let progressed = false;
+    for (const msg of batch) {
+      if (await processDueMessage(msg)) {
+        sent++;
+        progressed = true;
+      } else {
+        failed++;
+        return { sent, failed };
+      }
+    }
+    if (!progressed) break;
   }
   return { sent, failed };
 }
@@ -373,18 +385,32 @@ async function processSmsStep(msg: DueMessage): Promise<boolean> {
   } catch (error) {
     console.error(`SMS failed ${phone}:`, error);
 
+    const geoBlocked = isTwilioGeoBlockedError(error);
+
     await db.from('drip_messages').insert({
       enrollment_id: enrollment.id,
       contact_id: contact.id,
       campaign_id: enrollment.campaign_id,
       step_number: step.step_number,
       direction: 'outbound',
-      body,
+      body: geoBlocked
+        ? `[SMS skipped — region not enabled in Twilio] ${body}`
+        : body,
       status: 'failed',
       sent_at: now,
       channel: 'sms',
       error_detail: deliveryErrorMeta(error, 'twilio', 'send'),
     });
+
+    if (geoBlocked) {
+      await advanceEnrollment(db, enrollment, step.step_number);
+      safePushToFub(contact.fub_id, {
+        type: 'Note',
+        source: 'Drip Platform',
+        message: `[Drip: ${campaign.name} · ${formatDripStepDayLabel(step)}] SMS skipped — Twilio cannot send to ${phone} (region not enabled). Continuing with next drip step.`,
+      });
+      return true;
+    }
 
     return false;
   }
