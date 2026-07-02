@@ -76,6 +76,7 @@ export default function AiNurturePage() {
               goal={c.ai_goal}
               activeConversations={c.active_conversations}
               totalEnrolled={c.total_enrolled}
+              onUpdated={load}
             />
           ))}
         </div>

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Settings, Sparkles, MessageSquare, Users, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
+import { CampaignControls } from '@/components/campaigns/CampaignControls';
 import { KnowledgeManager } from '@/components/ai-nurture/KnowledgeManager';
 import { MediaManager } from '@/components/ai-nurture/MediaManager';
 import { AiCampaignForm } from '@/components/ai-nurture/AiCampaignForm';
@@ -94,7 +95,12 @@ export default function AiCampaignDetailPage() {
             <p className="text-sm text-muted">{goalLabels[config.goal]}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <CampaignControls
+            campaignId={id}
+            status={campaign.status}
+            onUpdated={() => void load()}
+          />
           <DuplicateCampaignButton campaignId={id} />
           <span
             className={cn(

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { CampaignControls } from '@/components/campaigns/CampaignControls';
 import { MessageSquare, Users, Sparkles, Copy } from 'lucide-react';
 import type { AiCampaignGoal, CampaignStatus } from '@/types';
 
@@ -27,9 +28,18 @@ interface Props {
   goal: AiCampaignGoal | null;
   activeConversations: number;
   totalEnrolled: number;
+  onUpdated?: () => void;
 }
 
-export function AiCampaignCard({ id, name, status, goal, activeConversations, totalEnrolled }: Props) {
+export function AiCampaignCard({
+  id,
+  name,
+  status,
+  goal,
+  activeConversations,
+  totalEnrolled,
+  onUpdated,
+}: Props) {
   const router = useRouter();
   const [duping, setDuping] = useState(false);
 
@@ -81,7 +91,13 @@ export function AiCampaignCard({ id, name, status, goal, activeConversations, to
             </span>
           </div>
         </Link>
-        <div className="flex flex-col items-center justify-center border-l border-border px-2 py-3">
+        <div className="flex flex-col items-center justify-center gap-1 border-l border-border px-2 py-3">
+          <CampaignControls
+            campaignId={id}
+            status={status}
+            compact
+            onUpdated={onUpdated}
+          />
           <Button
             type="button"
             variant="ghost"

@@ -427,6 +427,9 @@ export async function sendAiMessage(opts: {
     console.warn('sendAiMessage: campaign not found', campaignId);
     return { sent: false, escalated: false };
   }
+  if (campaign.status !== 'active') {
+    return { sent: false, escalated: false };
+  }
   if (!config) {
     console.warn(
       'sendAiMessage: missing drip_ai_campaign_config for campaign',
@@ -556,6 +559,7 @@ export async function handleAiReply(opts: {
 
   const { config, docs, media, campaign } = await loadAiCampaignContext(campaignId);
   if (!config || !campaign) return { replied: false, escalated: false };
+  if (campaign.status !== 'active') return { replied: false, escalated: false };
 
   let convRow = await getOrCreateConversation(enrollmentId, contactId, campaignId);
   if (convRow.status !== 'active') return { replied: false, escalated: false };
