@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { CampaignControls } from '@/components/campaigns/CampaignControls';
+import { DeleteCampaignButton } from '@/components/campaigns/DeleteCampaignButton';
 import { MessageSquare, Users, Sparkles, Copy } from 'lucide-react';
 import type { AiCampaignGoal, CampaignStatus } from '@/types';
 
@@ -29,6 +30,7 @@ interface Props {
   activeConversations: number;
   totalEnrolled: number;
   onUpdated?: () => void;
+  onDeleted?: () => void;
   folderName?: string;
 }
 
@@ -40,6 +42,7 @@ export function AiCampaignCard({
   activeConversations,
   totalEnrolled,
   onUpdated,
+  onDeleted,
   folderName,
 }: Props) {
   const router = useRouter();
@@ -119,6 +122,13 @@ export function AiCampaignCard({
           >
             <Copy size={16} />
           </Button>
+          <DeleteCampaignButton
+            campaignId={id}
+            campaignName={name}
+            campaignType="ai_nurture"
+            variant="icon"
+            onDeleted={onDeleted}
+          />
         </div>
       </div>
     </div>

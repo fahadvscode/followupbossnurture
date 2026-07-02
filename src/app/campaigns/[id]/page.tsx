@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { CampaignControls } from '@/components/campaigns/CampaignControls';
 import { CampaignDetailFolder } from '@/components/campaigns/CampaignDetailFolder';
 import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
+import { DeleteCampaignButton } from '@/components/campaigns/DeleteCampaignButton';
 import { ArrowLeft, Edit, Users, MessageSquare, MessageCircle, CheckCircle } from 'lucide-react';
 import {
   percentage,
@@ -162,6 +163,7 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               <Edit size={14} className="mr-2" /> Edit
             </Button>
           </Link>
+          <DeleteCampaignButton campaignId={id} campaignName={c.name} />
         </div>
       </div>
 

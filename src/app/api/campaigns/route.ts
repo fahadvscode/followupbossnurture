@@ -217,3 +217,21 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(request: NextRequest) {
+  const body = await request.json();
+  const { id } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: 'id required' }, { status: 400 });
+  }
+
+  const db = getServiceClient();
+  const { error } = await db.from('drip_campaigns').delete().eq('id', id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

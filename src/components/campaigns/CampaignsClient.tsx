@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { CampaignCard } from '@/components/campaigns/CampaignCard';
 import { CampaignFolderSelect } from '@/components/campaigns/CampaignFolderSelect';
 import { CampaignFoldersSidebar } from '@/components/campaigns/CampaignFoldersSidebar';
+import { DeleteCampaignButton } from '@/components/campaigns/DeleteCampaignButton';
 import { useCampaignFolders } from '@/hooks/useCampaignFolders';
 import type { DripCampaign } from '@/types';
 import { MessageSquare, Plus } from 'lucide-react';
@@ -109,15 +110,24 @@ export function CampaignsClient({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredCampaigns.map((campaign) => (
                 <div key={campaign.id} className="space-y-2">
-                  <CampaignFolderSelect
-                    campaignId={campaign.id}
-                    campaignName={campaign.name}
-                    folderId={campaign.folder_id}
-                    folders={folders.folders}
-                    disabled={folders.movingCampaignId === campaign.id}
-                    onMove={handleMove}
-                    className="justify-end px-1"
-                  />
+                  <div className="flex items-center justify-end gap-1 px-1">
+                    <CampaignFolderSelect
+                      campaignId={campaign.id}
+                      campaignName={campaign.name}
+                      folderId={campaign.folder_id}
+                      folders={folders.folders}
+                      disabled={folders.movingCampaignId === campaign.id}
+                      onMove={handleMove}
+                      className="justify-end"
+                    />
+                    <DeleteCampaignButton
+                      campaignId={campaign.id}
+                      campaignName={campaign.name}
+                      campaignType={campaign.campaign_type === 'ai_nurture' ? 'ai_nurture' : 'standard'}
+                      variant="icon"
+                      onDeleted={() => setCampaigns((prev) => prev.filter((c) => c.id !== campaign.id))}
+                    />
+                  </div>
                   <CampaignCard
                     campaign={campaign}
                     stats={statsMap[campaign.id] || { enrolled: 0, active: 0, messages_sent: 0, replies: 0 }}

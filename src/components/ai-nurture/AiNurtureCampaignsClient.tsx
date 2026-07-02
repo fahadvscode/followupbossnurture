@@ -142,6 +142,7 @@ export function AiNurtureCampaignsClient({ initialCampaigns }: Props) {
                     totalEnrolled={c.total_enrolled}
                     folderName={folders.folderLabel(c.folder_id)}
                     onUpdated={reloadCampaigns}
+                    onDeleted={() => setCampaigns((prev) => prev.filter((x) => x.id !== c.id))}
                   />
                 </div>
               ))}

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Settings, Sparkles, MessageSquare, Users, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
+import { DeleteCampaignButton } from '@/components/campaigns/DeleteCampaignButton';
 import { CampaignControls } from '@/components/campaigns/CampaignControls';
 import { CampaignDetailFolder } from '@/components/campaigns/CampaignDetailFolder';
 import { KnowledgeManager } from '@/components/ai-nurture/KnowledgeManager';
@@ -108,6 +109,11 @@ export default function AiCampaignDetailPage() {
             onUpdated={() => void load()}
           />
           <DuplicateCampaignButton campaignId={id} />
+          <DeleteCampaignButton
+            campaignId={id}
+            campaignName={campaign.name}
+            campaignType="ai_nurture"
+          />
           <span
             className={cn(
               'rounded-full px-3 py-1 text-xs font-medium',

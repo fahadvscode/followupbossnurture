@@ -193,7 +193,9 @@ export async function DELETE(request: NextRequest) {
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
 
   const db = getServiceClient();
-  await db.from('drip_campaigns').delete().eq('id', id);
+  const { error } = await db.from('drip_campaigns').delete().eq('id', id);
+
+  if (error) return Response.json({ error: error.message }, { status: 500 });
 
   return Response.json({ success: true });
 }
