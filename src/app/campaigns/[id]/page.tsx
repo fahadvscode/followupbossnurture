@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { StatCard } from '@/components/ui/stat-card';
 import { Button } from '@/components/ui/button';
 import { CampaignControls } from '@/components/campaigns/CampaignControls';
+import { CampaignDetailFolder } from '@/components/campaigns/CampaignDetailFolder';
 import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
 import { ArrowLeft, Edit, Users, MessageSquare, MessageCircle, CheckCircle } from 'lucide-react';
 import {
@@ -113,6 +114,11 @@ export default async function CampaignDetailPage({ params }: PageProps) {
 
   const c = campaign as DripCampaign;
 
+  if (c.campaign_type === 'ai_nurture') {
+    const { redirect } = await import('next/navigation');
+    redirect(`/ai-nurture/${id}`);
+  }
+
   return (
     <div>
       <Link href="/campaigns" className="inline-flex items-center gap-1 text-sm text-muted hover:text-foreground mb-6">
@@ -140,7 +146,12 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               ? 'Pause drip for that lead (recommended)'
               : 'Keep drip running'}
           </p>
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <CampaignDetailFolder
+              campaignId={id}
+              campaignName={c.name}
+              initialFolderId={c.folder_id}
+            />
             <CampaignControls campaignId={id} status={c.status} />
           </div>
         </div>

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GoalSelector } from './GoalSelector';
 import { TwilioFromSelect } from '@/components/campaigns/TwilioFromSelect';
-import type { AiCampaignGoal, AiEscalationAction } from '@/types';
+import { CampaignFolderSelect } from '@/components/campaigns/CampaignFolderSelect';
+import type { AiCampaignGoal, AiEscalationAction, DripCampaignFolder } from '@/types';
 import { CheckCircle } from 'lucide-react';
 
 interface FormData {
@@ -25,10 +26,11 @@ interface FormData {
   trigger_sources: string;
   twilio_from_number: string;
   status: string;
+  folder_id: string;
 }
 
 interface Props {
-  initial?: Partial<FormData> & { id?: string; persona_name?: string | null; first_message_override?: string | null; office_address?: string | null };
+  initial?: Partial<FormData> & { id?: string; persona_name?: string | null; first_message_override?: string | null; office_address?: string | null; folder_id?: string | null };
   isEdit?: boolean;
   onSaved?: () => void;
 }
@@ -38,6 +40,14 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [folders, setFolders] = useState<DripCampaignFolder[]>([]);
+
+  useEffect(() => {
+    void fetch('/api/campaign-folders')
+      .then((r) => r.json())
+      .then((d) => setFolders(Array.isArray(d.folders) ? d.folders : []))
+      .catch(() => setFolders([]));
+  }, []);
 
   const [form, setForm] = useState<FormData>({
     name: initial?.name || '',
@@ -57,6 +67,7 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
     trigger_sources: initial?.trigger_sources || '',
     twilio_from_number: initial?.twilio_from_number || '',
     status: initial?.status || 'paused',
+    folder_id: initial?.folder_id || '',
   });
 
   const set = <K extends keyof FormData>(k: K, v: FormData[K]) =>
@@ -77,6 +88,7 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
     const payload = {
       ...form,
       ...(isEdit ? { id: initial?.id } : {}),
+      folder_id: form.folder_id || null,
       trigger_tags: form.trigger_tags
         .split(',')
         .map((s) => s.trim())
@@ -317,6 +329,18 @@ export function AiCampaignForm({ initial, isEdit, onSaved }: Props) {
             placeholder="Facebook, Website"
           />
         </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-foreground mb-1">Folder</label>
+        <CampaignFolderSelect
+          campaignId={initial?.id || 'new'}
+          campaignName={form.name || 'Campaign'}
+          folderId={form.folder_id || null}
+          folders={folders}
+          showIcon={false}
+          onMove={async (_id, next) => set('folder_id', next)}
+        />
       </div>
 
       {isEdit && (

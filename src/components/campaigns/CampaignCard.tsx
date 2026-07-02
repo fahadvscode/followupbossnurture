@@ -15,20 +15,26 @@ interface CampaignCardProps {
   };
   /** Schedule preview: Day 1, 0m · Day 1, 5m · Day 2 … */
   stepDayLabels?: string[];
+  folderName?: string;
 }
 
 const MAX_DAY_LABELS_ON_CARD = 12;
 
-export function CampaignCard({ campaign, stats, stepDayLabels = [] }: CampaignCardProps) {
+export function CampaignCard({ campaign, stats, stepDayLabels = [], folderName }: CampaignCardProps) {
   const labels = stepDayLabels.slice(0, MAX_DAY_LABELS_ON_CARD);
   const moreCount = stepDayLabels.length - labels.length;
+  const href =
+    campaign.campaign_type === 'ai_nurture' ? `/ai-nurture/${campaign.id}` : `/campaigns/${campaign.id}`;
   return (
-    <Link href={`/campaigns/${campaign.id}`}>
+    <Link href={href}>
       <Card className="hover:border-accent/30 transition-all cursor-pointer">
         <CardContent className="p-5">
           <div className="flex items-start justify-between mb-3">
             <div>
               <h3 className="text-base font-semibold text-foreground">{campaign.name}</h3>
+              {folderName ? (
+                <p className="text-xs text-muted mt-0.5">{folderName}</p>
+              ) : null}
               {campaign.description && (
                 <p className="text-sm text-muted mt-0.5 line-clamp-1">{campaign.description}</p>
               )}

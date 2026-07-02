@@ -15,6 +15,8 @@ import {
 import type { EmailBodyFormat, TriggerGroup } from '@/types';
 import { TwilioFromSelect } from '@/components/campaigns/TwilioFromSelect';
 import { TriggerGroupEditor } from '@/components/campaigns/TriggerGroupEditor';
+import { CampaignFolderSelect } from '@/components/campaigns/CampaignFolderSelect';
+import type { DripCampaignFolder } from '@/types';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -83,6 +85,8 @@ export default function EditCampaignPage() {
   const [triggerMinGroups, setTriggerMinGroups] = useState(1);
   const [twilioFrom, setTwilioFrom] = useState('');
   const [pauseOnSmsReply, setPauseOnSmsReply] = useState(true);
+  const [folderId, setFolderId] = useState('');
+  const [folders, setFolders] = useState<DripCampaignFolder[]>([]);
   const [steps, setSteps] = useState<CampaignStepForm[]>([]);
 
   useEffect(() => {
@@ -102,6 +106,7 @@ export default function EditCampaignPage() {
         );
         setTwilioFrom(data.campaign.twilio_from_number || '');
         setPauseOnSmsReply(data.campaign.pause_on_sms_reply !== false);
+        setFolderId(data.campaign.folder_id || '');
         setSteps(
           Array.isArray(data.steps) && data.steps.length > 0
             ? normalizeStepsFromApi(data.steps)
@@ -109,6 +114,10 @@ export default function EditCampaignPage() {
         );
         setLoading(false);
       });
+    fetch('/api/campaign-folders')
+      .then((r) => r.json())
+      .then((d) => setFolders(Array.isArray(d.folders) ? d.folders : []))
+      .catch(() => setFolders([]));
   }, [id]);
 
   async function handleSave() {
@@ -134,6 +143,7 @@ export default function EditCampaignPage() {
         trigger_min_groups: triggerMinGroups,
         twilio_from_number: hasSms ? twilioFrom.trim() : null,
         pause_on_sms_reply: pauseOnSmsReply,
+        folder_id: folderId || null,
         steps,
       }),
     });
@@ -175,6 +185,18 @@ export default function EditCampaignPage() {
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">Description</label>
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Folder</label>
+                <CampaignFolderSelect
+                  campaignId={String(id)}
+                  campaignName={name}
+                  folderId={folderId || null}
+                  folders={folders}
+                  showIcon={false}
+                  onMove={async (_cid, next) => setFolderId(next)}
+                  className="w-full"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">Status</label>

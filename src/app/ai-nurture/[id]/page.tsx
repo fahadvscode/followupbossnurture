@@ -7,6 +7,7 @@ import { ArrowLeft, Settings, Sparkles, MessageSquare, Users, Send } from 'lucid
 import { cn } from '@/lib/utils';
 import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
 import { CampaignControls } from '@/components/campaigns/CampaignControls';
+import { CampaignDetailFolder } from '@/components/campaigns/CampaignDetailFolder';
 import { KnowledgeManager } from '@/components/ai-nurture/KnowledgeManager';
 import { MediaManager } from '@/components/ai-nurture/MediaManager';
 import { AiCampaignForm } from '@/components/ai-nurture/AiCampaignForm';
@@ -96,6 +97,11 @@ export default function AiCampaignDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
+          <CampaignDetailFolder
+            campaignId={id}
+            campaignName={campaign.name}
+            initialFolderId={campaign.folder_id}
+          />
           <CampaignControls
             campaignId={id}
             status={campaign.status}
@@ -260,6 +266,7 @@ export default function AiCampaignDetailPage() {
               trigger_sources: (campaign.trigger_sources || []).join(', '),
               twilio_from_number: campaign.twilio_from_number || '',
               status: campaign.status,
+              folder_id: campaign.folder_id || '',
             }}
           />
         </div>

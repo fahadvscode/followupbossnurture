@@ -160,6 +160,10 @@ export async function PUT(request: NextRequest) {
       trigger_sources: body.trigger_sources,
       status: body.status,
       twilio_from_number: body.twilio_from_number ?? null,
+      folder_id:
+        body.folder_id === null || body.folder_id === '' || body.folder_id === undefined
+          ? null
+          : String(body.folder_id),
     })
     .eq('id', body.id);
 

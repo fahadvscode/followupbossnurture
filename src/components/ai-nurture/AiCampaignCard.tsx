@@ -29,6 +29,7 @@ interface Props {
   activeConversations: number;
   totalEnrolled: number;
   onUpdated?: () => void;
+  folderName?: string;
 }
 
 export function AiCampaignCard({
@@ -39,6 +40,7 @@ export function AiCampaignCard({
   activeConversations,
   totalEnrolled,
   onUpdated,
+  folderName,
 }: Props) {
   const router = useRouter();
   const [duping, setDuping] = useState(false);
@@ -72,7 +74,14 @@ export function AiCampaignCard({
               </div>
               <div className="min-w-0">
                 <h3 className="font-semibold text-foreground truncate">{name}</h3>
-                {goal && <span className="text-xs text-muted">{goalLabels[goal]}</span>}
+                {folderName ? (
+                  <span className="text-xs text-muted">{folderName}</span>
+                ) : goal ? (
+                  <span className="text-xs text-muted">{goalLabels[goal]}</span>
+                ) : null}
+                {folderName && goal ? (
+                  <span className="text-xs text-muted/80 block">{goalLabels[goal]}</span>
+                ) : null}
               </div>
             </div>
             <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium', statusColors[status])}>
