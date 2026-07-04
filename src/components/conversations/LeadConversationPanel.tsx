@@ -86,7 +86,12 @@ export function LeadConversationPanel({
   useEffect(() => {
     setLoading(true);
     void load();
-  }, [load]);
+    void fetch('/api/inbox/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact_id: contactId, campaign_id: campaignId }),
+    });
+  }, [load, contactId, campaignId]);
 
   const convAction = useCallback(
     async (action: string, message?: string) => {

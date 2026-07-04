@@ -39,7 +39,7 @@ export function ConversationThread({ messages, contactName }: Props) {
                   isOutbound ? 'text-white/60' : 'text-muted'
                 )}
               >
-                {isOutbound ? 'AI' : contactName} &middot;{' '}
+                {isOutbound ? 'Sent' : contactName} &middot;{' '}
                 {msg.sent_at
                   ? new Date(msg.sent_at).toLocaleString('en-US', {
                       month: 'short',

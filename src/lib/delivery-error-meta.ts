@@ -90,3 +90,12 @@ export function inferMessageChannel(msg: {
   if (msg.twilio_sid?.startsWith('fub-ap-')) return 'fub_action_plan';
   return 'sms';
 }
+
+/** True when a drip_messages row is an SMS (not email, FUB task, or action plan). */
+export function isSmsMessage(msg: {
+  body: string;
+  channel?: string | null;
+  twilio_sid?: string | null;
+}): boolean {
+  return inferMessageChannel(msg) === 'sms';
+}

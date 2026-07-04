@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { ensureAiConversation } from '@/lib/ai-engine';
+import { isSmsMessage } from '@/lib/delivery-error-meta';
 
 export async function GET(
   request: NextRequest,
@@ -13,12 +14,14 @@ export async function GET(
   const contactId = request.nextUrl.searchParams.get('contact_id');
 
   if (contactId) {
-    const { data: messages } = await db
+    const { data: allMessages } = await db
       .from('drip_messages')
       .select('*')
       .eq('campaign_id', id)
       .eq('contact_id', contactId)
       .order('created_at', { ascending: true });
+
+    const messages = (allMessages || []).filter(isSmsMessage);
 
     let conv = null;
     const { data: existing } = await db

@@ -1,4 +1,6 @@
 import { getServiceClient } from '@/lib/supabase';
+import { isSmsMessage } from '@/lib/delivery-error-meta';
+import { isThreadUnread, loadInboxReadMap } from '@/lib/inbox-read';
 
 export type InboxThread = {
   id: string;
@@ -9,6 +11,7 @@ export type InboxThread = {
   enrollment_id: string | null;
   status: string;
   needs_attention: boolean;
+  unread: boolean;
   message_count: number;
   exchange_count: number;
   follow_up_count: number;
@@ -22,7 +25,7 @@ export type InboxThread = {
   last_message: { body: string; direction: string; sent_at: string } | null;
 };
 
-type Filter = 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
+type Filter = 'unread' | 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
 type MsgRow = {
   contact_id: string;
@@ -33,17 +36,11 @@ type MsgRow = {
   sent_at: string | null;
   created_at: string;
   channel: string | null;
+  twilio_sid: string | null;
 };
 
 function msgTime(m: MsgRow): string {
   return m.sent_at || m.created_at;
-}
-
-function isSmsLike(m: MsgRow): boolean {
-  if (m.channel === 'email' || m.channel === 'fub_task' || m.channel === 'fub_action_plan') {
-    return false;
-  }
-  return true;
 }
 
 function lastActivity(thread: InboxThread): string {
@@ -58,6 +55,7 @@ function lastActivity(thread: InboxThread): string {
 
 function matchesFilter(thread: InboxThread, filter: Filter): boolean {
   if (filter === 'all') return true;
+  if (filter === 'unread') return thread.unread;
   if (filter === 'needs_action') return thread.needs_attention || thread.status === 'escalated';
   if (filter === 'escalated') return thread.status === 'escalated';
   if (filter === 'human_takeover') return thread.status === 'human_takeover';
@@ -66,22 +64,24 @@ function matchesFilter(thread: InboxThread, filter: Filter): boolean {
 }
 
 export async function loadInboxThreads(
-  filter: Filter = 'all',
+  filter: Filter = 'unread',
   focusContactId?: string | null
 ): Promise<{
   threads: InboxThread[];
   needs_action_count: number;
+  unread_count: number;
 }> {
   const db = getServiceClient();
   const threadMap = new Map<string, InboxThread>();
+  const readMap = await loadInboxReadMap();
 
   const { data: messages } = await db
     .from('drip_messages')
-    .select('contact_id,campaign_id,enrollment_id,direction,body,sent_at,created_at,channel')
+    .select('contact_id,campaign_id,enrollment_id,direction,body,sent_at,created_at,channel,twilio_sid')
     .order('created_at', { ascending: false })
     .limit(5000);
 
-  const smsMessages = ((messages || []) as MsgRow[]).filter(isSmsLike);
+  const smsMessages = ((messages || []) as MsgRow[]).filter(isSmsMessage);
 
   const enrollmentIds = [
     ...new Set(
@@ -127,6 +127,7 @@ export async function loadInboxThreads(
         enrollment_id: msg.enrollment_id,
         status: 'active',
         needs_attention: msg.direction === 'inbound',
+        unread: false,
         message_count: 1,
         exchange_count: 0,
         follow_up_count: 0,
@@ -205,29 +206,8 @@ export async function loadInboxThreads(
           conv.status === 'escalated' ||
           existing.last_message?.direction === 'inbound',
       });
-    } else {
-      threadMap.set(key, {
-        id: conv.id as string,
-        kind: 'ai',
-        conversation_id: conv.id as string,
-        contact_id: conv.contact_id as string,
-        campaign_id: conv.campaign_id as string,
-        enrollment_id: conv.enrollment_id as string,
-        status: conv.status as string,
-        needs_attention: Boolean(conv.needs_attention),
-        message_count: 0,
-        exchange_count: Number(conv.exchange_count) || 0,
-        follow_up_count: Number(conv.follow_up_count) || 0,
-        last_outbound_at: (conv.last_outbound_at as string) || null,
-        last_inbound_at: (conv.last_inbound_at as string) || null,
-        escalation_reason: (conv.escalation_reason as string) || null,
-        takeover_at: (conv.takeover_at as string) || null,
-        updated_at: (conv.updated_at as string) || null,
-        contact,
-        campaign,
-        last_message: null,
-      });
     }
+    // Skip AI conversations with no SMS messages — inbox is SMS-only
   }
 
   const missingContactIds = [...contactIds].filter((id) =>
@@ -265,12 +245,20 @@ export async function loadInboxThreads(
     if (thread.kind === 'standard' && thread.campaign?.campaign_type === 'ai_nurture') {
       thread.kind = 'ai';
     }
-    if (thread.last_message?.direction === 'inbound' && thread.status !== 'escalated') {
-      thread.needs_attention = thread.needs_attention || true;
+    const key = `${thread.contact_id}:${thread.campaign_id}`;
+    thread.unread = isThreadUnread({
+      last_inbound_at: thread.last_inbound_at,
+      last_message: thread.last_message,
+      last_read_at: readMap.get(key),
+    });
+    if (thread.unread) {
+      thread.needs_attention = true;
     }
   }
 
-  let allThreads = Array.from(threadMap.values()).sort(
+  let allThreads = Array.from(threadMap.values())
+    .filter((t) => t.message_count > 0 && t.last_message)
+    .sort(
     (a, b) => new Date(lastActivity(b)).getTime() - new Date(lastActivity(a)).getTime()
   );
 
@@ -278,12 +266,15 @@ export async function loadInboxThreads(
     allThreads = allThreads.filter((t) => t.contact_id === focusContactId);
   }
 
-  const needsActionCount = Array.from(threadMap.values()).filter(
+  const needsActionCount = allThreads.filter(
     (t) => t.needs_attention || t.status === 'escalated'
   ).length;
+
+  const unreadCount = allThreads.filter((t) => t.unread).length;
 
   return {
     threads: allThreads.filter((t) => matchesFilter(t, filter)),
     needs_action_count: needsActionCount,
+    unread_count: unreadCount,
   };
 }

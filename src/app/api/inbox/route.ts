@@ -3,7 +3,8 @@ import { loadInboxThreads } from '@/lib/inbox-threads';
 
 // GET /api/inbox?filter=all&contactId=optional
 export async function GET(request: NextRequest) {
-  const filter = (request.nextUrl.searchParams.get('filter') || 'all') as
+  const filter = (request.nextUrl.searchParams.get('filter') || 'unread') as
+    | 'unread'
     | 'needs_action'
     | 'escalated'
     | 'human_takeover'

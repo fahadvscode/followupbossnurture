@@ -3,6 +3,7 @@ import { getServiceClient } from '@/lib/supabase';
 import { sendSMS } from '@/lib/twilio';
 import { normalizePhone } from '@/lib/utils';
 import { pushEvent } from '@/lib/fub';
+import { markInboxThreadRead } from '@/lib/inbox-read';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -71,6 +72,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       message: `[Manual reply: ${campaign.name}] ${message}`,
     }).catch(() => {});
   }
+
+  await markInboxThreadRead(contactId, campaignId);
 
   return NextResponse.json({ ok: true, sid: result.sid });
 }

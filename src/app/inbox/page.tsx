@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { conversationPath } from '@/lib/conversation-url';
-import { AlertCircle, Bot, UserCheck, Activity, Inbox, Clock, RefreshCw } from 'lucide-react';
+import { AlertCircle, Bot, UserCheck, Activity, Inbox, Clock, RefreshCw, Mail } from 'lucide-react';
 
-type Filter = 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
+type Filter = 'unread' | 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
 interface ThreadRow {
   id: string;
@@ -17,6 +17,7 @@ interface ThreadRow {
   campaign_id: string;
   status: string;
   needs_attention: boolean;
+  unread: boolean;
   message_count: number;
   exchange_count: number;
   last_outbound_at: string | null;
@@ -28,8 +29,9 @@ interface ThreadRow {
 }
 
 const FILTERS: { key: Filter; label: string; icon: React.ElementType; color: string }[] = [
+  { key: 'unread', label: 'Unread', icon: Mail, color: 'text-accent' },
+  { key: 'all', label: 'All SMS', icon: Activity, color: 'text-muted' },
   { key: 'needs_action', label: 'Needs Action', icon: AlertCircle, color: 'text-red-500' },
-  { key: 'all', label: 'All', icon: Activity, color: 'text-muted' },
   { key: 'escalated', label: 'Escalated', icon: AlertCircle, color: 'text-orange-500' },
   { key: 'human_takeover', label: 'Taken Over', icon: UserCheck, color: 'text-blue-500' },
   { key: 'active', label: 'Active AI', icon: Bot, color: 'text-green-500' },
@@ -72,9 +74,10 @@ export default function InboxPage() {
 function InboxPageContent() {
   const searchParams = useSearchParams();
   const focusContactId = searchParams.get('contactId');
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<Filter>('unread');
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [needsActionCount, setNeedsActionCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [restarting, setRestarting] = useState<string | null>(null);
 
@@ -105,6 +108,7 @@ function InboxPageContent() {
     const data = await res.json();
     setThreads(data.threads || []);
     setNeedsActionCount(data.needs_action_count || 0);
+    setUnreadCount(data.unread_count || 0);
     setLoading(false);
   }, [filter, focusContactId]);
 
@@ -117,10 +121,10 @@ function InboxPageContent() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Inbox size={22} className="text-accent" />
-          <h1 className="text-xl font-bold text-foreground">Inbox</h1>
-          {needsActionCount > 0 && (
+          <h1 className="text-xl font-bold text-foreground">SMS Inbox</h1>
+          {unreadCount > 0 && (
             <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">
-              {needsActionCount}
+              {unreadCount}
             </span>
           )}
         </div>
@@ -133,7 +137,7 @@ function InboxPageContent() {
       </div>
 
       <p className="text-sm text-muted -mt-2">
-        All SMS threads across campaigns. Click any conversation to view the full history and reply.
+        SMS conversations only — text messages sent and received via Twilio. Emails and FUB tasks are not shown here.
         {focusContactId ? ' Showing threads for this lead.' : ''}
       </p>
 
@@ -151,6 +155,11 @@ function InboxPageContent() {
           >
             <f.icon size={14} className={filter === f.key ? 'text-accent' : f.color} />
             {f.label}
+            {f.key === 'unread' && unreadCount > 0 && (
+              <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                {unreadCount}
+              </span>
+            )}
             {f.key === 'needs_action' && needsActionCount > 0 && (
               <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
                 {needsActionCount}
@@ -166,7 +175,9 @@ function InboxPageContent() {
         </div>
       ) : threads.length === 0 ? (
         <div className="text-center py-16 text-sm text-muted">
-          No conversations in this view.
+          {filter === 'unread'
+            ? 'No unread SMS messages — you are caught up.'
+            : 'No conversations in this view.'}
         </div>
       ) : (
         <div className="space-y-2">
@@ -192,15 +203,24 @@ function InboxPageContent() {
                 href={href}
                 className={cn(
                   'flex items-start justify-between rounded-xl border bg-card p-4 hover:border-accent/40 transition-colors gap-3',
-                  thread.needs_attention || thread.status === 'escalated'
+                  thread.unread
+                    ? 'border-accent/50 bg-accent/5'
+                    : thread.needs_attention || thread.status === 'escalated'
                     ? 'border-red-300'
                     : 'border-border'
                 )}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-semibold text-foreground truncate">{name}</p>
-                    {thread.needs_attention && (
+                    <p className={cn('text-sm font-semibold truncate', thread.unread ? 'text-foreground' : 'text-foreground')}>
+                      {name}
+                    </p>
+                    {thread.unread && (
+                      <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        Unread
+                      </span>
+                    )}
+                    {thread.needs_attention && !thread.unread && (
                       <span className="shrink-0 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
                         Needs Action
                       </span>
