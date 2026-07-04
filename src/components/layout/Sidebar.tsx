@@ -41,7 +41,7 @@ export function Sidebar() {
     let cancelled = false;
     const fetchBadge = async () => {
       try {
-        const res = await fetch('/api/ai-conversations?filter=needs_action');
+        const res = await fetch('/api/inbox?filter=needs_action');
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (!cancelled) setInboxBadge(data.needs_action_count || 0);

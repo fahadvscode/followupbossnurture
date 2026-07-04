@@ -439,7 +439,7 @@ export async function sendAiMessage(opts: {
     return { sent: false, escalated: false };
   }
 
-  let convRow = await getOrCreateConversation(enrollmentId, contactId, campaignId);
+  let convRow = await ensureAiConversation(enrollmentId, contactId, campaignId);
 
   if (convRow.status !== 'active') return { sent: false, escalated: false };
   if (isFollowUp && convRow.follow_up_count >= config.max_follow_ups) {
@@ -561,7 +561,7 @@ export async function handleAiReply(opts: {
   if (!config || !campaign) return { replied: false, escalated: false };
   if (campaign.status !== 'active') return { replied: false, escalated: false };
 
-  let convRow = await getOrCreateConversation(enrollmentId, contactId, campaignId);
+  let convRow = await ensureAiConversation(enrollmentId, contactId, campaignId);
   if (convRow.status !== 'active') return { replied: false, escalated: false };
 
   await db
@@ -670,7 +670,7 @@ export async function handleAiReply(opts: {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-async function getOrCreateConversation(
+export async function ensureAiConversation(
   enrollmentId: string,
   contactId: string,
   campaignId: string

@@ -3,34 +3,34 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { conversationPath } from '@/lib/conversation-url';
 import { AlertCircle, Bot, UserCheck, Activity, Inbox, Clock, RefreshCw } from 'lucide-react';
 
 type Filter = 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
-interface ConvRow {
+interface ThreadRow {
   id: string;
-  enrollment_id: string;
+  kind: 'ai' | 'standard';
+  conversation_id: string | null;
   contact_id: string;
   campaign_id: string;
   status: string;
   needs_attention: boolean;
   exchange_count: number;
-  follow_up_count: number;
   last_outbound_at: string | null;
   last_inbound_at: string | null;
   escalation_reason: string | null;
-  takeover_at: string | null;
   contact: { id: string; first_name: string; last_name: string; phone: string } | null;
-  campaign: { id: string; name: string } | null;
+  campaign: { id: string; name: string; campaign_type: string } | null;
   last_message: { body: string; direction: string; sent_at: string } | null;
 }
 
 const FILTERS: { key: Filter; label: string; icon: React.ElementType; color: string }[] = [
   { key: 'needs_action', label: 'Needs Action', icon: AlertCircle, color: 'text-red-500' },
+  { key: 'all', label: 'All', icon: Activity, color: 'text-muted' },
   { key: 'escalated', label: 'Escalated', icon: AlertCircle, color: 'text-orange-500' },
   { key: 'human_takeover', label: 'Taken Over', icon: UserCheck, color: 'text-blue-500' },
   { key: 'active', label: 'Active AI', icon: Bot, color: 'text-green-500' },
-  { key: 'all', label: 'All', icon: Activity, color: 'text-muted' },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -39,6 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
   human_takeover: 'bg-blue-500/15 text-blue-600',
   paused: 'bg-yellow-500/15 text-yellow-600',
   goal_met: 'bg-purple-500/15 text-purple-600',
+  replied: 'bg-amber-500/15 text-amber-700',
 };
 
 function timeAgo(iso: string | null) {
@@ -53,8 +54,8 @@ function timeAgo(iso: string | null) {
 }
 
 export default function InboxPage() {
-  const [filter, setFilter] = useState<Filter>('needs_action');
-  const [conversations, setConversations] = useState<ConvRow[]>([]);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [needsActionCount, setNeedsActionCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [restarting, setRestarting] = useState<string | null>(null);
@@ -80,21 +81,23 @@ export default function InboxPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/ai-conversations?filter=${filter}`);
+    const res = await fetch(`/api/inbox?filter=${filter}`);
     const data = await res.json();
-    setConversations(data.conversations || []);
+    setThreads(data.threads || []);
     setNeedsActionCount(data.needs_action_count || 0);
     setLoading(false);
   }, [filter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Inbox size={22} className="text-accent" />
-          <h1 className="text-xl font-bold text-foreground">AI Inbox</h1>
+          <h1 className="text-xl font-bold text-foreground">Inbox</h1>
           {needsActionCount > 0 && (
             <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">
               {needsActionCount}
@@ -109,7 +112,10 @@ export default function InboxPage() {
         </button>
       </div>
 
-      {/* Filter tabs */}
+      <p className="text-sm text-muted -mt-2">
+        All SMS conversations — AI nurture threads and standard drip replies. Click any thread to chat.
+      </p>
+
       <div className="flex gap-1 border-b border-border overflow-x-auto">
         {FILTERS.map((f) => (
           <button
@@ -133,33 +139,39 @@ export default function InboxPage() {
         ))}
       </div>
 
-      {/* List */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="h-7 w-7 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
-      ) : conversations.length === 0 ? (
+      ) : threads.length === 0 ? (
         <div className="text-center py-16 text-sm text-muted">
           No conversations in this view.
         </div>
       ) : (
         <div className="space-y-2">
-          {conversations.map((conv) => {
+          {threads.map((thread) => {
             const name =
-              `${conv.contact?.first_name || ''} ${conv.contact?.last_name || ''}`.trim() ||
-              conv.contact?.phone ||
+              `${thread.contact?.first_name || ''} ${thread.contact?.last_name || ''}`.trim() ||
+              thread.contact?.phone ||
               'Unknown';
-            const lastActivity = conv.last_inbound_at || conv.last_outbound_at;
-            const lastMsg = conv.last_message;
+            const lastActivity = thread.last_inbound_at || thread.last_outbound_at;
+            const lastMsg = thread.last_message;
             const isInbound = lastMsg?.direction === 'inbound';
+            const href = conversationPath({
+              contactId: thread.contact_id,
+              campaignId: thread.campaign_id,
+              campaignType:
+                (thread.campaign?.campaign_type as 'standard' | 'ai_nurture' | undefined) ||
+                (thread.kind === 'ai' ? 'ai_nurture' : 'standard'),
+            });
 
             return (
               <Link
-                key={conv.id}
-                href={`/ai-nurture/${conv.campaign_id}/conversations/${conv.contact_id}`}
+                key={thread.id}
+                href={href}
                 className={cn(
                   'flex items-start justify-between rounded-xl border bg-card p-4 hover:border-accent/40 transition-colors gap-3',
-                  conv.needs_attention || conv.status === 'escalated'
+                  thread.needs_attention || thread.status === 'escalated'
                     ? 'border-red-300'
                     : 'border-border'
                 )}
@@ -167,7 +179,7 @@ export default function InboxPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-sm font-semibold text-foreground truncate">{name}</p>
-                    {conv.needs_attention && (
+                    {thread.needs_attention && (
                       <span className="shrink-0 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
                         Needs Action
                       </span>
@@ -175,25 +187,34 @@ export default function InboxPage() {
                     <span
                       className={cn(
                         'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium',
-                        STATUS_COLORS[conv.status] || 'bg-gray-100 text-gray-500'
+                        STATUS_COLORS[thread.status] || 'bg-gray-100 text-gray-500'
                       )}
                     >
-                      {conv.status.replace(/_/g, ' ')}
+                      {thread.status.replace(/_/g, ' ')}
                     </span>
+                    {thread.kind === 'standard' && (
+                      <span className="shrink-0 rounded-full bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted">
+                        Drip
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted mb-1 truncate">
-                    {conv.campaign?.name || 'Unknown campaign'}
-                    {' · '}
-                    {conv.exchange_count} exchanges
+                    {thread.campaign?.name || 'Unknown campaign'}
+                    {thread.kind === 'ai' ? ` · ${thread.exchange_count} exchanges` : ''}
                   </p>
                   {lastMsg && (
-                    <p className={cn('text-xs truncate', isInbound ? 'text-foreground font-medium' : 'text-muted')}>
+                    <p
+                      className={cn(
+                        'text-xs truncate',
+                        isInbound ? 'text-foreground font-medium' : 'text-muted'
+                      )}
+                    >
                       {isInbound ? '← ' : '→ '}
                       {lastMsg.body}
                     </p>
                   )}
-                  {conv.escalation_reason && (
-                    <p className="text-xs text-red-600 mt-0.5 truncate">⚠ {conv.escalation_reason}</p>
+                  {thread.escalation_reason && (
+                    <p className="text-xs text-red-600 mt-0.5 truncate">⚠ {thread.escalation_reason}</p>
                   )}
                 </div>
                 <div className="shrink-0 text-right flex flex-col items-end gap-2">
@@ -201,18 +222,19 @@ export default function InboxPage() {
                     <Clock size={11} />
                     {timeAgo(lastActivity)}
                   </p>
-                  {['active', 'escalated', 'paused', 'human_takeover', 'goal_met'].includes(
-                    conv.status
-                  ) && (
-                    <button
-                      onClick={(e) => restartConv(conv.id, e)}
-                      disabled={restarting === conv.id}
-                      className="flex items-center gap-1 text-[10px] font-medium text-accent border border-accent/30 rounded-md px-2 py-1 hover:bg-accent/10 disabled:opacity-50"
-                    >
-                      <RefreshCw size={10} />
-                      {restarting === conv.id ? '...' : 'Start fresh'}
-                    </button>
-                  )}
+                  {thread.conversation_id &&
+                    ['active', 'escalated', 'paused', 'human_takeover', 'goal_met'].includes(
+                      thread.status
+                    ) && (
+                      <button
+                        onClick={(e) => restartConv(thread.conversation_id!, e)}
+                        disabled={restarting === thread.conversation_id}
+                        className="flex items-center gap-1 text-[10px] font-medium text-accent border border-accent/30 rounded-md px-2 py-1 hover:bg-accent/10 disabled:opacity-50"
+                      >
+                        <RefreshCw size={10} />
+                        {restarting === thread.conversation_id ? '...' : 'Start fresh'}
+                      </button>
+                    )}
                 </div>
               </Link>
             );

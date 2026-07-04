@@ -267,7 +267,12 @@ export default async function CampaignDetailPage({ params }: PageProps) {
               <CardTitle>Replies ({replies.length})</CardTitle>
             </CardHeader>
             <CardContent>
-              <ReplyFeed replies={replies} stepDayLabels={stepDayLabels} />
+              <ReplyFeed
+                replies={replies}
+                stepDayLabels={stepDayLabels}
+                campaignId={id}
+                campaignType={c.campaign_type || 'standard'}
+              />
             </CardContent>
           </Card>
         </div>

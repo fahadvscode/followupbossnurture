@@ -1,5 +1,7 @@
 import { sendSmtpIfConfigured } from '@/lib/email';
 import { resolveTwilioWebhookOrigin } from '@/lib/twilio';
+import { conversationUrl } from '@/lib/conversation-url';
+import type { CampaignType } from '@/types';
 
 /** Pull a bare email address out of values like "Jane Agent <jane@x.com>". */
 function extractEmailAddress(raw: string | undefined): string {
@@ -31,21 +33,22 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Deep link to the best conversation view for this reply.
- * AI nurture campaigns have a dedicated thread view; everything else uses the
- * contact timeline (which shows the full SMS/email history).
+ * Deep link to the SMS conversation thread (AI nurture page or contact chat panel).
  */
-function conversationUrl(args: {
+function buildConversationLink(args: {
   origin: string;
   contactId: string;
   campaignId?: string | null;
-  isAiNurture?: boolean;
+  campaignType?: CampaignType | string | null;
 }): string {
-  const { origin, contactId, campaignId, isAiNurture } = args;
-  if (isAiNurture && campaignId) {
-    return `${origin}/ai-nurture/${campaignId}/conversations/${contactId}`;
-  }
-  return `${origin}/contacts/${contactId}`;
+  const { origin, contactId, campaignId, campaignType } = args;
+  if (!campaignId) return `${origin}/contacts/${contactId}?chat=1`;
+  return conversationUrl({
+    origin,
+    contactId,
+    campaignId,
+    campaignType: campaignType || 'standard',
+  });
 }
 
 /**
@@ -57,7 +60,7 @@ export async function notifyAgentOfReply(args: {
   body: string;
   campaignName?: string | null;
   campaignId?: string | null;
-  isAiNurture?: boolean;
+  campaignType?: CampaignType | string | null;
   isOptOut?: boolean;
 }): Promise<boolean> {
   const to = resolveNotifyRecipients();
@@ -71,11 +74,11 @@ export async function notifyAgentOfReply(args: {
 
   const origin = resolveTwilioWebhookOrigin();
   const link = origin
-    ? conversationUrl({
+    ? buildConversationLink({
         origin,
         contactId: args.contact.id,
         campaignId: args.campaignId,
-        isAiNurture: args.isAiNurture,
+        campaignType: args.campaignType,
       })
     : '';
 

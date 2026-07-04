@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
+import { ensureAiConversation } from '@/lib/ai-engine';
 
 export async function GET(
   request: NextRequest,
@@ -19,12 +20,38 @@ export async function GET(
       .eq('contact_id', contactId)
       .order('created_at', { ascending: true });
 
-    const { data: conv } = await db
+    let conv = null;
+    const { data: existing } = await db
       .from('drip_ai_conversations')
       .select('*')
       .eq('campaign_id', id)
       .eq('contact_id', contactId)
-      .single();
+      .maybeSingle();
+
+    if (existing) {
+      conv = existing;
+    } else {
+      const { data: campaign } = await db
+        .from('drip_campaigns')
+        .select('campaign_type')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (campaign?.campaign_type === 'ai_nurture') {
+        const { data: enrollment } = await db
+          .from('drip_enrollments')
+          .select('id')
+          .eq('contact_id', contactId)
+          .eq('campaign_id', id)
+          .order('enrolled_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (enrollment) {
+          conv = await ensureAiConversation(enrollment.id, contactId, id);
+        }
+      }
+    }
 
     return Response.json({ messages: messages || [], conversation: conv });
   }

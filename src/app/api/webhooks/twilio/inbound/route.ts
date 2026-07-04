@@ -214,6 +214,12 @@ async function handleReply(
       .filter(Boolean)[0] as string | undefined) ||
     null;
 
+  const aiEnrollment = activeList.find(
+    (e) => (e.campaign as { campaign_type?: string } | null)?.campaign_type === 'ai_nurture'
+  );
+  const linkEnrollment = aiEnrollment || primary;
+  const linkCamp = linkEnrollment?.campaign as { name?: string; campaign_type?: string } | null;
+
   void notifyAgentOfReply({
     contact: {
       id: contact.id,
@@ -222,9 +228,9 @@ async function handleReply(
       phone: contact.phone,
     },
     body,
-    campaignName: notifyCampaignName,
-    campaignId: primary?.campaign_id ?? null,
-    isAiNurture: primaryIsAiNurture,
+    campaignName: linkCamp?.name || notifyCampaignName,
+    campaignId: linkEnrollment?.campaign_id ?? null,
+    campaignType: linkCamp?.campaign_type || 'standard',
     isOptOut: isOptOut(body),
   }).catch((e) => console.error('Reply notification error:', e));
 
