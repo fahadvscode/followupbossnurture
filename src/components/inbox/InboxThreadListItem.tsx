@@ -19,7 +19,7 @@ export type InboxThreadListItemData = {
   last_inbound_at: string | null;
   last_outbound_at: string | null;
   escalation_reason: string | null;
-  contact: { id: string; first_name: string; last_name: string; phone: string } | null;
+  contact: { id: string; first_name: string; last_name: string; phone: string; email?: string | null } | null;
   campaign: { id: string; name: string; campaign_type: string } | null;
   last_message: { body: string; direction: string; sent_at: string } | null;
 };
@@ -138,6 +138,8 @@ export function InboxThreadListItem({ thread, onRestart, restarting }: Props) {
 
         <p className="truncate text-[11px] text-muted mt-0.5">
           {thread.campaign?.name || 'Campaign'}
+          {thread.contact?.phone ? ` · ${thread.contact.phone}` : ''}
+          {thread.contact?.email ? ` · ${thread.contact.email}` : ''}
         </p>
 
         {lastMsg && (

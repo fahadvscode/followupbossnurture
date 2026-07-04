@@ -7,7 +7,8 @@ import {
   type InboxThreadListItemData,
 } from '@/components/inbox/InboxThreadListItem';
 import { useSearchParams } from 'next/navigation';
-import { AlertCircle, Bot, UserCheck, Activity, Inbox, Mail } from 'lucide-react';
+import { AlertCircle, Bot, UserCheck, Activity, Inbox, Mail, Search, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 
 type Filter = 'unread' | 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
@@ -38,6 +39,8 @@ function InboxPageContent() {
   const searchParams = useSearchParams();
   const focusContactId = searchParams.get('contactId');
   const [filter, setFilter] = useState<Filter>('unread');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [threads, setThreads] = useState<InboxThreadListItemData[]>([]);
   const [needsActionCount, setNeedsActionCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -63,17 +66,23 @@ function InboxPageContent() {
     load();
   };
 
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const q = new URLSearchParams({ filter });
     if (focusContactId) q.set('contactId', focusContactId);
+    if (search) q.set('search', search);
     const res = await fetch(`/api/inbox?${q.toString()}`);
     const data = await res.json();
     setThreads(data.threads || []);
     setNeedsActionCount(data.needs_action_count || 0);
     setUnreadCount(data.unread_count || 0);
     setLoading(false);
-  }, [filter, focusContactId]);
+  }, [filter, focusContactId, search]);
 
   useEffect(() => {
     load();
@@ -115,6 +124,33 @@ function InboxPageContent() {
         </span>
       </p>
 
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+        <Input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search name, phone, email, or message…"
+          className="pl-9 pr-9"
+        />
+        {searchInput ? (
+          <button
+            type="button"
+            onClick={() => setSearchInput('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-md text-muted hover:text-foreground hover:bg-card-hover"
+            aria-label="Clear search"
+          >
+            <X size={14} />
+          </button>
+        ) : null}
+      </div>
+
+      {search ? (
+        <p className="text-xs text-muted">
+          {loading ? 'Searching…' : `${threads.length} result${threads.length === 1 ? '' : 's'} for “${search}”`}
+        </p>
+      ) : null}
+
       <div className="flex gap-1 border-b border-border overflow-x-auto">
         {FILTERS.map((f) => (
           <button
@@ -150,9 +186,11 @@ function InboxPageContent() {
         </div>
       ) : threads.length === 0 ? (
         <div className="text-center py-16 text-sm text-muted">
-          {filter === 'unread'
-            ? 'No unread SMS messages — you are caught up.'
-            : 'No conversations in this view.'}
+          {search
+            ? `No conversations matching “${search}”.`
+            : filter === 'unread'
+              ? 'No unread SMS messages — you are caught up.'
+              : 'No conversations in this view.'}
         </div>
       ) : (
         <div className="space-y-1">

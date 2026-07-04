@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase';
 import { isSmsMessage } from '@/lib/delivery-error-meta';
 import { isThreadUnread, loadInboxReadMap } from '@/lib/inbox-read';
+import { threadMatchesInboxSearch } from '@/lib/inbox-search';
 
 export type InboxThread = {
   id: string;
@@ -22,7 +23,7 @@ export type InboxThread = {
   escalation_reason: string | null;
   takeover_at: string | null;
   updated_at: string | null;
-  contact: { id: string; first_name: string; last_name: string; phone: string } | null;
+  contact: { id: string; first_name: string; last_name: string; phone: string; email: string | null } | null;
   campaign: { id: string; name: string; campaign_type: string } | null;
   last_message: { body: string; direction: string; sent_at: string } | null;
 };
@@ -67,7 +68,8 @@ function matchesFilter(thread: InboxThread, filter: Filter): boolean {
 
 export async function loadInboxThreads(
   filter: Filter = 'unread',
-  focusContactId?: string | null
+  focusContactId?: string | null,
+  searchQuery?: string | null
 ): Promise<{
   threads: InboxThread[];
   needs_action_count: number;
@@ -106,6 +108,7 @@ export async function loadInboxThreads(
 
   const contactIds = new Set<string>();
   const campaignIds = new Set<string>();
+  const messageBodiesByKey = new Map<string, string[]>();
 
   for (const msg of smsMessages) {
     const campaignId = msg.campaign_id || (msg.enrollment_id ? enrollmentCampaign.get(msg.enrollment_id) : null);
@@ -117,6 +120,10 @@ export async function loadInboxThreads(
     const key = `${msg.contact_id}:${campaignId}`;
     const at = msgTime(msg);
     const preview = { body: msg.body, direction: msg.direction, sent_at: at };
+
+    const bodies = messageBodiesByKey.get(key) || [];
+    bodies.push(msg.body);
+    messageBodiesByKey.set(key, bodies);
 
     const existing = threadMap.get(key);
     if (!existing) {
@@ -169,7 +176,7 @@ export async function loadInboxThreads(
 
   const { data: aiRows } = await db
     .from('drip_ai_conversations')
-    .select('*, contact:drip_contacts(id,first_name,last_name,phone), campaign:drip_campaigns(id,name,campaign_type)')
+    .select('*, contact:drip_contacts(id,first_name,last_name,phone,email), campaign:drip_campaigns(id,name,campaign_type)')
     .order('updated_at', { ascending: false })
     .limit(500);
 
@@ -225,7 +232,7 @@ export async function loadInboxThreads(
   if (missingContactIds.length > 0) {
     const { data: contacts } = await db
       .from('drip_contacts')
-      .select('id,first_name,last_name,phone')
+      .select('id,first_name,last_name,phone,email')
       .in('id', missingContactIds);
     for (const c of contacts || []) {
       contactMap.set(c.id as string, c as InboxThread['contact']);
@@ -279,8 +286,17 @@ export async function loadInboxThreads(
 
   const unreadCount = allThreads.filter((t) => t.unread).length;
 
+  const search = (searchQuery || '').trim();
+  if (search) {
+    allThreads = allThreads.filter((t) =>
+      threadMatchesInboxSearch(t, search, messageBodiesByKey.get(`${t.contact_id}:${t.campaign_id}`))
+    );
+  }
+
   return {
-    threads: allThreads.filter((t) => matchesFilter(t, filter)),
+    threads: search
+      ? allThreads
+      : allThreads.filter((t) => matchesFilter(t, filter)),
     needs_action_count: needsActionCount,
     unread_count: unreadCount,
   };

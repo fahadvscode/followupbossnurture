@@ -12,9 +12,10 @@ export async function GET(request: NextRequest) {
     | 'all';
 
   const focusContactId = request.nextUrl.searchParams.get('contactId');
+  const search = request.nextUrl.searchParams.get('search');
 
   try {
-    const result = await loadInboxThreads(filter, focusContactId);
+    const result = await loadInboxThreads(filter, focusContactId, search);
     return Response.json(result);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to load inbox';
