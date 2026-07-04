@@ -12,6 +12,8 @@ export type InboxThread = {
   status: string;
   needs_attention: boolean;
   unread: boolean;
+  /** Lead has sent at least one inbound SMS in this thread. */
+  lead_has_replied: boolean;
   message_count: number;
   exchange_count: number;
   follow_up_count: number;
@@ -128,6 +130,7 @@ export async function loadInboxThreads(
         status: 'active',
         needs_attention: msg.direction === 'inbound',
         unread: false,
+        lead_has_replied: msg.direction === 'inbound',
         message_count: 1,
         exchange_count: 0,
         follow_up_count: 0,
@@ -149,6 +152,7 @@ export async function loadInboxThreads(
       if (!inboundAt || new Date(at) > new Date(inboundAt)) {
         existing.last_inbound_at = at;
       }
+      existing.lead_has_replied = true;
     }
     if (msg.direction === 'outbound') {
       const outboundAt = existing.last_outbound_at;
@@ -251,6 +255,9 @@ export async function loadInboxThreads(
       last_message: thread.last_message,
       last_read_at: readMap.get(key),
     });
+    if (!thread.lead_has_replied) {
+      thread.lead_has_replied = Boolean(thread.last_inbound_at);
+    }
     if (thread.unread) {
       thread.needs_attention = true;
     }
