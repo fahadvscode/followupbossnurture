@@ -1,17 +1,10 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { useParams } from 'next/navigation';
-import { LeadConversationPanel } from '@/components/conversations/LeadConversationPanel';
+type Props = {
+  params: Promise<{ id: string; contactId: string }>;
+};
 
-export default function ConversationDetailPage() {
-  const { id, contactId } = useParams<{ id: string; contactId: string }>();
-
-  return (
-    <LeadConversationPanel
-      campaignId={id}
-      contactId={contactId}
-      campaignType="ai_nurture"
-      backHref={`/ai-nurture/${id}`}
-    />
-  );
+export default async function AiConversationRedirectPage({ params }: Props) {
+  const { id, contactId } = await params;
+  redirect(`/inbox/${contactId}/${id}`);
 }

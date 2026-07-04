@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Settings, Sparkles, MessageSquare, Users, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { conversationPath } from '@/lib/conversation-url';
 import { DuplicateCampaignButton } from '@/components/campaigns/DuplicateCampaignButton';
 import { DeleteCampaignButton } from '@/components/campaigns/DeleteCampaignButton';
 import { CampaignControls } from '@/components/campaigns/CampaignControls';
@@ -229,7 +230,11 @@ export default function AiCampaignDetailPage() {
               return (
                 <Link
                   key={conv.id}
-                  href={`/ai-nurture/${id}/conversations/${conv.contact_id}`}
+                  href={conversationPath({
+                    contactId: conv.contact_id,
+                    campaignId: id,
+                    campaignType: 'ai_nurture',
+                  })}
                   className="flex items-center justify-between rounded-xl border border-border bg-card p-4 hover:border-accent/40 transition-colors"
                 >
                   <div>

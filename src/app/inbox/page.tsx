@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { conversationPath } from '@/lib/conversation-url';
 import { AlertCircle, Bot, UserCheck, Activity, Inbox, Clock, RefreshCw } from 'lucide-react';
@@ -16,6 +17,7 @@ interface ThreadRow {
   campaign_id: string;
   status: string;
   needs_attention: boolean;
+  message_count: number;
   exchange_count: number;
   last_outbound_at: string | null;
   last_inbound_at: string | null;
@@ -54,6 +56,22 @@ function timeAgo(iso: string | null) {
 }
 
 export default function InboxPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-20">
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        </div>
+      }
+    >
+      <InboxPageContent />
+    </Suspense>
+  );
+}
+
+function InboxPageContent() {
+  const searchParams = useSearchParams();
+  const focusContactId = searchParams.get('contactId');
   const [filter, setFilter] = useState<Filter>('all');
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [needsActionCount, setNeedsActionCount] = useState(0);
@@ -81,12 +99,14 @@ export default function InboxPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/inbox?filter=${filter}`);
+    const q = new URLSearchParams({ filter });
+    if (focusContactId) q.set('contactId', focusContactId);
+    const res = await fetch(`/api/inbox?${q.toString()}`);
     const data = await res.json();
     setThreads(data.threads || []);
     setNeedsActionCount(data.needs_action_count || 0);
     setLoading(false);
-  }, [filter]);
+  }, [filter, focusContactId]);
 
   useEffect(() => {
     load();
@@ -113,7 +133,8 @@ export default function InboxPage() {
       </div>
 
       <p className="text-sm text-muted -mt-2">
-        All SMS conversations — AI nurture threads and standard drip replies. Click any thread to chat.
+        All SMS threads across campaigns. Click any conversation to view the full history and reply.
+        {focusContactId ? ' Showing threads for this lead.' : ''}
       </p>
 
       <div className="flex gap-1 border-b border-border overflow-x-auto">
@@ -200,7 +221,10 @@ export default function InboxPage() {
                   </div>
                   <p className="text-xs text-muted mb-1 truncate">
                     {thread.campaign?.name || 'Unknown campaign'}
-                    {thread.kind === 'ai' ? ` · ${thread.exchange_count} exchanges` : ''}
+                    {thread.message_count > 0 ? ` · ${thread.message_count} messages` : ''}
+                    {thread.kind === 'ai' && thread.exchange_count > 0
+                      ? ` · ${thread.exchange_count} AI exchanges`
+                      : ''}
                   </p>
                   {lastMsg && (
                     <p

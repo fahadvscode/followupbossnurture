@@ -9,6 +9,7 @@ export type InboxThread = {
   enrollment_id: string | null;
   status: string;
   needs_attention: boolean;
+  message_count: number;
   exchange_count: number;
   follow_up_count: number;
   last_outbound_at: string | null;
@@ -23,8 +24,36 @@ export type InboxThread = {
 
 type Filter = 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
+type MsgRow = {
+  contact_id: string;
+  campaign_id: string | null;
+  enrollment_id: string | null;
+  direction: string;
+  body: string;
+  sent_at: string | null;
+  created_at: string;
+  channel: string | null;
+};
+
+function msgTime(m: MsgRow): string {
+  return m.sent_at || m.created_at;
+}
+
+function isSmsLike(m: MsgRow): boolean {
+  if (m.channel === 'email' || m.channel === 'fub_task' || m.channel === 'fub_action_plan') {
+    return false;
+  }
+  return true;
+}
+
 function lastActivity(thread: InboxThread): string {
-  return thread.last_inbound_at || thread.last_outbound_at || thread.updated_at || '';
+  return (
+    thread.last_inbound_at ||
+    thread.last_outbound_at ||
+    thread.last_message?.sent_at ||
+    thread.updated_at ||
+    ''
+  );
 }
 
 function matchesFilter(thread: InboxThread, filter: Filter): boolean {
@@ -36,146 +65,220 @@ function matchesFilter(thread: InboxThread, filter: Filter): boolean {
   return true;
 }
 
-async function lastMessageForPair(
-  db: ReturnType<typeof getServiceClient>,
-  contactId: string,
-  campaignId: string,
-  enrollmentId?: string | null
-) {
-  let query = db
-    .from('drip_messages')
-    .select('body,direction,sent_at,created_at')
-    .eq('contact_id', contactId)
-    .eq('campaign_id', campaignId)
-    .order('sent_at', { ascending: false })
-    .limit(1);
-
-  if (enrollmentId) {
-    query = query.eq('enrollment_id', enrollmentId);
-  }
-
-  const { data } = await query.maybeSingle();
-  if (!data) return null;
-  return {
-    body: data.body as string,
-    direction: data.direction as string,
-    sent_at: (data.sent_at as string) || (data.created_at as string),
-  };
-}
-
-export async function loadInboxThreads(filter: Filter = 'all'): Promise<{
+export async function loadInboxThreads(
+  filter: Filter = 'all',
+  focusContactId?: string | null
+): Promise<{
   threads: InboxThread[];
   needs_action_count: number;
 }> {
   const db = getServiceClient();
   const threadMap = new Map<string, InboxThread>();
 
+  const { data: messages } = await db
+    .from('drip_messages')
+    .select('contact_id,campaign_id,enrollment_id,direction,body,sent_at,created_at,channel')
+    .order('created_at', { ascending: false })
+    .limit(5000);
+
+  const smsMessages = ((messages || []) as MsgRow[]).filter(isSmsLike);
+
+  const enrollmentIds = [
+    ...new Set(
+      smsMessages
+        .filter((m) => !m.campaign_id && m.enrollment_id)
+        .map((m) => m.enrollment_id as string)
+    ),
+  ];
+
+  const enrollmentCampaign = new Map<string, string>();
+  if (enrollmentIds.length > 0) {
+    const { data: enrollments } = await db
+      .from('drip_enrollments')
+      .select('id,campaign_id')
+      .in('id', enrollmentIds);
+    for (const e of enrollments || []) {
+      if (e.campaign_id) enrollmentCampaign.set(e.id as string, e.campaign_id as string);
+    }
+  }
+
+  const contactIds = new Set<string>();
+  const campaignIds = new Set<string>();
+
+  for (const msg of smsMessages) {
+    const campaignId = msg.campaign_id || (msg.enrollment_id ? enrollmentCampaign.get(msg.enrollment_id) : null);
+    if (!campaignId || !msg.contact_id) continue;
+
+    contactIds.add(msg.contact_id);
+    campaignIds.add(campaignId);
+
+    const key = `${msg.contact_id}:${campaignId}`;
+    const at = msgTime(msg);
+    const preview = { body: msg.body, direction: msg.direction, sent_at: at };
+
+    const existing = threadMap.get(key);
+    if (!existing) {
+      threadMap.set(key, {
+        id: `msg-${msg.contact_id}-${campaignId}`,
+        kind: 'standard',
+        conversation_id: null,
+        contact_id: msg.contact_id,
+        campaign_id: campaignId,
+        enrollment_id: msg.enrollment_id,
+        status: 'active',
+        needs_attention: msg.direction === 'inbound',
+        message_count: 1,
+        exchange_count: 0,
+        follow_up_count: 0,
+        last_outbound_at: msg.direction === 'outbound' ? at : null,
+        last_inbound_at: msg.direction === 'inbound' ? at : null,
+        escalation_reason: null,
+        takeover_at: null,
+        updated_at: at,
+        contact: null,
+        campaign: null,
+        last_message: preview,
+      });
+      continue;
+    }
+
+    existing.message_count += 1;
+    if (msg.direction === 'inbound') {
+      const inboundAt = existing.last_inbound_at;
+      if (!inboundAt || new Date(at) > new Date(inboundAt)) {
+        existing.last_inbound_at = at;
+      }
+    }
+    if (msg.direction === 'outbound') {
+      const outboundAt = existing.last_outbound_at;
+      if (!outboundAt || new Date(at) > new Date(outboundAt)) {
+        existing.last_outbound_at = at;
+      }
+    }
+    if (!existing.last_message || new Date(at) > new Date(existing.last_message.sent_at)) {
+      existing.last_message = preview;
+      existing.updated_at = at;
+      existing.needs_attention = msg.direction === 'inbound';
+    }
+  }
+
   const { data: aiRows } = await db
     .from('drip_ai_conversations')
     .select('*, contact:drip_contacts(id,first_name,last_name,phone), campaign:drip_campaigns(id,name,campaign_type)')
     .order('updated_at', { ascending: false })
-    .limit(300);
-
-  for (const conv of aiRows || []) {
-    const contact = conv.contact as InboxThread['contact'];
-    const campaign = conv.campaign as InboxThread['campaign'];
-    const lastMsg = await lastMessageForPair(
-      db,
-      conv.contact_id as string,
-      conv.campaign_id as string,
-      conv.enrollment_id as string
-    );
-
-    const thread: InboxThread = {
-      id: conv.id as string,
-      kind: 'ai',
-      conversation_id: conv.id as string,
-      contact_id: conv.contact_id as string,
-      campaign_id: conv.campaign_id as string,
-      enrollment_id: conv.enrollment_id as string,
-      status: conv.status as string,
-      needs_attention: Boolean(conv.needs_attention),
-      exchange_count: Number(conv.exchange_count) || 0,
-      follow_up_count: Number(conv.follow_up_count) || 0,
-      last_outbound_at: (conv.last_outbound_at as string) || null,
-      last_inbound_at: (conv.last_inbound_at as string) || null,
-      escalation_reason: (conv.escalation_reason as string) || null,
-      takeover_at: (conv.takeover_at as string) || null,
-      updated_at: (conv.updated_at as string) || null,
-      contact,
-      campaign,
-      last_message: lastMsg,
-    };
-
-    threadMap.set(`${thread.contact_id}:${thread.campaign_id}`, thread);
-  }
-
-  const { data: inboundMsgs } = await db
-    .from('drip_messages')
-    .select('contact_id,campaign_id,enrollment_id,sent_at,created_at')
-    .eq('direction', 'inbound')
-    .not('campaign_id', 'is', null)
-    .order('sent_at', { ascending: false })
     .limit(500);
 
-  const standardPairs = new Map<string, { contact_id: string; campaign_id: string; enrollment_id: string | null }>();
-  for (const row of inboundMsgs || []) {
-    const key = `${row.contact_id}:${row.campaign_id}`;
-    if (threadMap.has(key) || standardPairs.has(key)) continue;
-    standardPairs.set(key, {
-      contact_id: row.contact_id as string,
-      campaign_id: row.campaign_id as string,
-      enrollment_id: (row.enrollment_id as string) || null,
-    });
-  }
+  for (const conv of aiRows || []) {
+    contactIds.add(conv.contact_id as string);
+    campaignIds.add(conv.campaign_id as string);
 
-  for (const pair of standardPairs.values()) {
-    const { data: campaign } = await db
-      .from('drip_campaigns')
-      .select('id,name,campaign_type')
-      .eq('id', pair.campaign_id)
-      .maybeSingle();
+    const key = `${conv.contact_id}:${conv.campaign_id}`;
+    const contact = conv.contact as InboxThread['contact'];
+    const campaign = conv.campaign as InboxThread['campaign'];
+    const existing = threadMap.get(key);
 
-    if (!campaign || campaign.campaign_type === 'ai_nurture') continue;
-
-    const { data: contact } = await db
-      .from('drip_contacts')
-      .select('id,first_name,last_name,phone')
-      .eq('id', pair.contact_id)
-      .maybeSingle();
-
-    const lastMsg = await lastMessageForPair(db, pair.contact_id, pair.campaign_id, pair.enrollment_id);
-    const needsAttention = lastMsg?.direction === 'inbound';
-
-    const thread: InboxThread = {
-      id: `std-${pair.contact_id}-${pair.campaign_id}`,
-      kind: 'standard',
-      conversation_id: null,
-      contact_id: pair.contact_id,
-      campaign_id: pair.campaign_id,
-      enrollment_id: pair.enrollment_id,
-      status: 'replied',
-      needs_attention: needsAttention,
-      exchange_count: 0,
-      follow_up_count: 0,
-      last_outbound_at: null,
-      last_inbound_at: lastMsg?.direction === 'inbound' ? lastMsg.sent_at : null,
-      escalation_reason: null,
-      takeover_at: null,
-      updated_at: lastMsg?.sent_at || null,
-      contact: contact || null,
-      campaign: campaign as InboxThread['campaign'],
-      last_message: lastMsg,
+    const aiMeta = {
+      id: (conv.id as string) || existing?.id || `msg-${key}`,
+      kind: 'ai' as const,
+      conversation_id: conv.id as string,
+      status: conv.status as string,
+      needs_attention: Boolean(conv.needs_attention) || existing?.needs_attention || false,
+      exchange_count: Number(conv.exchange_count) || 0,
+      follow_up_count: Number(conv.follow_up_count) || 0,
+      last_outbound_at: (conv.last_outbound_at as string) || existing?.last_outbound_at || null,
+      last_inbound_at: (conv.last_inbound_at as string) || existing?.last_inbound_at || null,
+      escalation_reason: (conv.escalation_reason as string) || null,
+      takeover_at: (conv.takeover_at as string) || null,
+      updated_at: (conv.updated_at as string) || existing?.updated_at || null,
+      contact,
+      campaign,
     };
 
-    threadMap.set(`${pair.contact_id}:${pair.campaign_id}`, thread);
+    if (existing) {
+      threadMap.set(key, {
+        ...existing,
+        ...aiMeta,
+        message_count: existing.message_count,
+        last_message: existing.last_message,
+        needs_attention:
+          Boolean(conv.needs_attention) ||
+          conv.status === 'escalated' ||
+          existing.last_message?.direction === 'inbound',
+      });
+    } else {
+      threadMap.set(key, {
+        id: conv.id as string,
+        kind: 'ai',
+        conversation_id: conv.id as string,
+        contact_id: conv.contact_id as string,
+        campaign_id: conv.campaign_id as string,
+        enrollment_id: conv.enrollment_id as string,
+        status: conv.status as string,
+        needs_attention: Boolean(conv.needs_attention),
+        message_count: 0,
+        exchange_count: Number(conv.exchange_count) || 0,
+        follow_up_count: Number(conv.follow_up_count) || 0,
+        last_outbound_at: (conv.last_outbound_at as string) || null,
+        last_inbound_at: (conv.last_inbound_at as string) || null,
+        escalation_reason: (conv.escalation_reason as string) || null,
+        takeover_at: (conv.takeover_at as string) || null,
+        updated_at: (conv.updated_at as string) || null,
+        contact,
+        campaign,
+        last_message: null,
+      });
+    }
   }
 
-  const allThreads = Array.from(threadMap.values()).sort(
+  const missingContactIds = [...contactIds].filter((id) =>
+    [...threadMap.values()].some((t) => t.contact_id === id && !t.contact)
+  );
+  const missingCampaignIds = [...campaignIds].filter((id) =>
+    [...threadMap.values()].some((t) => t.campaign_id === id && !t.campaign)
+  );
+
+  const contactMap = new Map<string, InboxThread['contact']>();
+  if (missingContactIds.length > 0) {
+    const { data: contacts } = await db
+      .from('drip_contacts')
+      .select('id,first_name,last_name,phone')
+      .in('id', missingContactIds);
+    for (const c of contacts || []) {
+      contactMap.set(c.id as string, c as InboxThread['contact']);
+    }
+  }
+
+  const campaignMap = new Map<string, InboxThread['campaign']>();
+  if (missingCampaignIds.length > 0) {
+    const { data: campaigns } = await db
+      .from('drip_campaigns')
+      .select('id,name,campaign_type')
+      .in('id', missingCampaignIds);
+    for (const c of campaigns || []) {
+      campaignMap.set(c.id as string, c as InboxThread['campaign']);
+    }
+  }
+
+  for (const thread of threadMap.values()) {
+    if (!thread.contact) thread.contact = contactMap.get(thread.contact_id) || null;
+    if (!thread.campaign) thread.campaign = campaignMap.get(thread.campaign_id) || null;
+    if (thread.kind === 'standard' && thread.campaign?.campaign_type === 'ai_nurture') {
+      thread.kind = 'ai';
+    }
+    if (thread.last_message?.direction === 'inbound' && thread.status !== 'escalated') {
+      thread.needs_attention = thread.needs_attention || true;
+    }
+  }
+
+  let allThreads = Array.from(threadMap.values()).sort(
     (a, b) => new Date(lastActivity(b)).getTime() - new Date(lastActivity(a)).getTime()
   );
 
-  const needsActionCount = allThreads.filter(
+  if (focusContactId) {
+    allThreads = allThreads.filter((t) => t.contact_id === focusContactId);
+  }
+
+  const needsActionCount = Array.from(threadMap.values()).filter(
     (t) => t.needs_attention || t.status === 'escalated'
   ).length;
 

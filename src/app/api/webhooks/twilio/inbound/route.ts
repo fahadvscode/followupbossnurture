@@ -99,6 +99,7 @@ async function handleReply(
     twilio_sid: messageSid,
     status: 'received',
     sent_at: new Date().toISOString(),
+    channel: 'sms',
   });
 
   // ── AI nurture: auto-reply instead of pausing ──────────────────────

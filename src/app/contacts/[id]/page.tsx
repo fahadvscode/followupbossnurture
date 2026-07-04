@@ -9,9 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatPhone, formatDate, formatDateTime, buildStepDayLabelMap } from '@/lib/utils';
 import { ArrowLeft, Mail, Phone, MapPin } from 'lucide-react';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import { Suspense } from 'react';
-import { ContactChatSection, type ContactEnrollmentChat } from '@/components/contacts/ContactChatSection';
+import { notFound, redirect } from 'next/navigation';
 import { conversationPath } from '@/lib/conversation-url';
 import type {
   DripContact,
@@ -26,10 +24,19 @@ export const dynamic = 'force-dynamic';
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ chat?: string; campaignId?: string }>;
 }
 
-export default async function ContactDetailPage({ params }: PageProps) {
+export default async function ContactDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const sp = await searchParams;
+  if (sp.campaignId) {
+    redirect(`/inbox/${id}/${sp.campaignId}`);
+  }
+  if (sp.chat === '1') {
+    redirect(`/inbox?contactId=${id}`);
+  }
+
   const db = getServiceClient();
 
   const { data: contact } = await db
@@ -90,38 +97,6 @@ export default async function ContactDetailPage({ params }: PageProps) {
   });
 
   const c = contact as DripContact;
-  const contactDisplayName =
-    `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.phone || 'Lead';
-  const chatEnrollments: ContactEnrollmentChat[] = (enrollments || []).map((e) => {
-    const campaign = e.campaign as DripCampaign;
-    return {
-      campaign_id: e.campaign_id,
-      campaign_name: campaign?.name || 'Campaign',
-      campaign_type: campaign?.campaign_type || 'standard',
-    };
-  });
-  const enrolledCampaignIds = new Set(chatEnrollments.map((e) => e.campaign_id));
-  const messageCampaignIds = [
-    ...new Set(
-      ((messages || []) as DripMessage[])
-        .map((m) => m.campaign_id)
-        .filter((cid): cid is string => Boolean(cid))
-    ),
-  ].filter((cid) => !enrolledCampaignIds.has(cid));
-
-  if (messageCampaignIds.length > 0) {
-    const { data: extraCampaigns } = await db
-      .from('drip_campaigns')
-      .select('id,name,campaign_type')
-      .in('id', messageCampaignIds);
-    for (const camp of extraCampaigns || []) {
-      chatEnrollments.push({
-        campaign_id: camp.id,
-        campaign_name: camp.name,
-        campaign_type: (camp.campaign_type as DripCampaign['campaign_type']) || 'standard',
-      });
-    }
-  }
   const customEntries = Object.entries(c.custom_fields || {}).filter(
     ([, v]) => v !== null && v !== undefined && v !== ''
   );
@@ -319,14 +294,6 @@ export default async function ContactDetailPage({ params }: PageProps) {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          <Suspense fallback={null}>
-            <ContactChatSection
-              contactId={id}
-              contactName={contactDisplayName}
-              enrollments={chatEnrollments}
-            />
-          </Suspense>
-
           <Card>
             <CardHeader>
               <CardTitle>Campaign drip timeline</CardTitle>

@@ -1,6 +1,6 @@
 import { sendSmtpIfConfigured } from '@/lib/email';
 import { resolveTwilioWebhookOrigin } from '@/lib/twilio';
-import { conversationUrl } from '@/lib/conversation-url';
+import { conversationUrl, inboxPath } from '@/lib/conversation-url';
 import type { CampaignType } from '@/types';
 
 /** Pull a bare email address out of values like "Jane Agent <jane@x.com>". */
@@ -42,7 +42,7 @@ function buildConversationLink(args: {
   campaignType?: CampaignType | string | null;
 }): string {
   const { origin, contactId, campaignId, campaignType } = args;
-  if (!campaignId) return `${origin}/contacts/${contactId}?chat=1`;
+  if (!campaignId) return `${origin.replace(/\/$/, '')}${inboxPath(contactId)}`;
   return conversationUrl({
     origin,
     contactId,
@@ -109,7 +109,7 @@ export async function notifyAgentOfReply(args: {
     <p style="font-size:13px;color:#6b7280;margin:0 0 18px;">Campaign: ${escapeHtml(campaignLabel)}</p>
     ${
       link
-        ? `<a href="${escapeHtml(link)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 20px;border-radius:8px;">Open conversation</a>`
+        ? `<a href="${escapeHtml(link)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 20px;border-radius:8px;">Open in Inbox</a>`
         : ''
     }
   </div>`;
