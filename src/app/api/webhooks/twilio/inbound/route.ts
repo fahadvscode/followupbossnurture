@@ -4,6 +4,7 @@ import { formDataToTwilioParams, isOptOut, validateTwilioWebhookRequest } from '
 import { pushEvent } from '@/lib/fub';
 import { normalizePhone } from '@/lib/utils';
 import { handleAiReply } from '@/lib/ai-engine';
+import { findAttributionEnrollment } from '@/lib/inbox-messages';
 import { notifyAgentOfReply } from '@/lib/notify';
 
 function unwrapOne<T>(row: T | T[] | null | undefined): T | null {
@@ -43,7 +44,9 @@ export async function POST(request: NextRequest) {
       .from('drip_contacts')
       .select('*')
       .ilike('phone', `%${from.replace(/\D/g, '').slice(-10)}%`)
-      .single();
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (!contactAlt) {
       return new NextResponse(
@@ -98,13 +101,25 @@ async function handleReply(
     }
   }
   /** Link inbound row to the newest active enrollment for display; all actives are paused below. */
-  const primary = activeList[0];
+  const activePrimary = activeList[0];
+  let messageEnrollmentId = activePrimary?.id ?? null;
+  let messageCampaignId = activePrimary?.campaign_id ?? null;
+  let messageStep = activePrimary?.current_step ?? null;
+
+  if (!messageCampaignId) {
+    const attributed = await findAttributionEnrollment(db, contact.id);
+    if (attributed) {
+      messageEnrollmentId = attributed.id;
+      messageCampaignId = attributed.campaign_id;
+      messageStep = attributed.current_step;
+    }
+  }
 
   await db.from('drip_messages').insert({
-    enrollment_id: primary?.id || null,
+    enrollment_id: messageEnrollmentId,
     contact_id: contact.id,
-    campaign_id: primary?.campaign_id || null,
-    step_number: primary?.current_step ?? null,
+    campaign_id: messageCampaignId,
+    step_number: messageStep,
     direction: 'inbound',
     body,
     twilio_sid: messageSid,
@@ -115,7 +130,7 @@ async function handleReply(
 
   // ── AI nurture: auto-reply instead of pausing ──────────────────────
   const aiHandled: string[] = [];
-  const primaryCamp = unwrapOne(primary?.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
+  const primaryCamp = unwrapOne(activePrimary?.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
   const primaryIsAiNurture = primaryCamp?.campaign_type === 'ai_nurture';
 
   if (activeList.length > 0 && !isOptOut(body)) {
@@ -132,7 +147,7 @@ async function handleReply(
         // Inbound rows are attributed to `primary` only. When that enrollment is AI nurture,
         // generate a single reply for that thread — otherwise multiple AI campaigns would each
         // text the lead once per inbound (duplicate/confusing messages).
-        if (primaryIsAiNurture && primary && enrollment.id !== primary.id) {
+        if (primaryIsAiNurture && activePrimary && enrollment.id !== activePrimary.id) {
           continue;
         }
         try {
@@ -240,7 +255,7 @@ async function handleReply(
   const aiEnrollment = activeList.find(
     (e) => unwrapOne(e.campaign as CampaignPauseRow | CampaignPauseRow[] | null)?.campaign_type === 'ai_nurture'
   );
-  const linkEnrollment = aiEnrollment || primary;
+  const linkEnrollment = aiEnrollment || activePrimary;
   const linkCamp = unwrapOne(linkEnrollment?.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
 
   void notifyAgentOfReply({
@@ -252,7 +267,7 @@ async function handleReply(
     },
     body,
     campaignName: linkCamp?.name || notifyCampaignName,
-    campaignId: linkEnrollment?.campaign_id ?? null,
+    campaignId: linkEnrollment?.campaign_id ?? messageCampaignId,
     campaignType: linkCamp?.campaign_type || 'standard',
     isOptOut: isOptOut(body),
   }).catch((e) => console.error('Reply notification error:', e));

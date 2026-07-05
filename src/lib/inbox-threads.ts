@@ -1,6 +1,7 @@
 import { getServiceClient } from '@/lib/supabase';
 import { fetchAllPages } from '@/lib/supabase-fetch-all';
 import { isSmsMessage } from '@/lib/delivery-error-meta';
+import { buildMessageCampaignResolver } from '@/lib/inbox-messages';
 import { isThreadUnread, loadInboxReadMap } from '@/lib/inbox-read';
 import { threadMatchesInboxSearch } from '@/lib/inbox-search';
 
@@ -89,32 +90,14 @@ export async function loadInboxThreads(
   );
 
   const smsMessages = messages.filter(isSmsMessage);
-
-  const enrollmentIds = [
-    ...new Set(
-      smsMessages
-        .filter((m) => !m.campaign_id && m.enrollment_id)
-        .map((m) => m.enrollment_id as string)
-    ),
-  ];
-
-  const enrollmentCampaign = new Map<string, string>();
-  if (enrollmentIds.length > 0) {
-    const { data: enrollments } = await db
-      .from('drip_enrollments')
-      .select('id,campaign_id')
-      .in('id', enrollmentIds);
-    for (const e of enrollments || []) {
-      if (e.campaign_id) enrollmentCampaign.set(e.id as string, e.campaign_id as string);
-    }
-  }
+  const resolveCampaignId = await buildMessageCampaignResolver(db, smsMessages);
 
   const contactIds = new Set<string>();
   const campaignIds = new Set<string>();
   const messageBodiesByKey = new Map<string, string[]>();
 
   for (const msg of smsMessages) {
-    const campaignId = msg.campaign_id || (msg.enrollment_id ? enrollmentCampaign.get(msg.enrollment_id) : null);
+    const campaignId = resolveCampaignId(msg);
     if (!campaignId || !msg.contact_id) continue;
 
     contactIds.add(msg.contact_id);

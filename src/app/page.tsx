@@ -5,7 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { DeliveryIssuesCard } from '@/components/dashboard/DeliveryIssuesCard';
 import { DashboardConfigError } from '@/components/dashboard/DashboardConfigError';
 import { Users, MessageSquare, Zap, MessageCircle, ArrowUpRight } from 'lucide-react';
-import { formatDateTime, percentage, startOfAppDayUtcIso } from '@/lib/utils';
+import { formatDateTime, percentage } from '@/lib/utils';
+import { isSmsMessage } from '@/lib/delivery-error-meta';
+import { inboundSmsQuery, outboundSmsQuery, outboundSmsTodayQuery } from '@/lib/sms-stats';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -21,31 +23,33 @@ async function getDashboardStats() {
     await Promise.all([
     db.from('drip_contacts').select('id', { count: 'exact', head: true }),
     db.from('drip_enrollments').select('id', { count: 'exact', head: true }).eq('status', 'active'),
-    db.from('drip_messages').select('id', { count: 'exact', head: true }).eq('direction', 'outbound'),
-    db.from('drip_messages').select('id', { count: 'exact', head: true }).eq('direction', 'inbound'),
-    db.from('drip_messages').select('id', { count: 'exact', head: true })
-      .eq('direction', 'outbound')
-      .gte('sent_at', startOfAppDayUtcIso()),
+    outboundSmsQuery(db),
+    inboundSmsQuery(db),
+    outboundSmsTodayQuery(db),
     db.from('drip_campaigns').select('id, name, status', { count: 'exact' }).eq('status', 'active'),
     db
       .from('drip_messages')
       .select('id', { count: 'exact', head: true })
       .eq('direction', 'outbound')
+      .eq('channel', 'sms')
       .eq('status', 'delivered')
       .gte('sent_at', hours24ago),
     db
       .from('drip_messages')
       .select('id', { count: 'exact', head: true })
       .eq('direction', 'outbound')
+      .eq('channel', 'sms')
       .eq('status', 'failed')
       .gte('created_at', days7ago),
   ]);
 
-  const recentMessages = await db
+  const { data: recentRows } = await db
     .from('drip_messages')
     .select('*, contact:drip_contacts(first_name, last_name, phone), campaign:drip_campaigns(name)')
     .order('created_at', { ascending: false })
-    .limit(10);
+    .limit(50);
+
+  const recentActivity = (recentRows || []).filter(isSmsMessage).slice(0, 10);
 
   const { data: deliveryIssues } = await db
     .from('drip_messages')
@@ -66,7 +70,7 @@ async function getDashboardStats() {
     todaySent: todayMessages.count || 0,
     activeCampaigns: campaigns.count || 0,
     replyRate: percentage(replies.count || 0, messages.count || 0),
-    recentActivity: recentMessages.data || [],
+    recentActivity,
     deliveryIssues: deliveryIssues || [],
     deliveredLast24h: deliveredLast24h.count || 0,
     failedLast7d: failedLast7d.count || 0,
@@ -110,7 +114,7 @@ export default async function DashboardPage() {
           icon={Zap}
         />
         <StatCard
-          label="Sent Today"
+          label="SMS Sent Today"
           value={stats.todaySent.toLocaleString()}
           icon={MessageSquare}
         />
@@ -226,11 +230,11 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex justify-between">
-                <span className="text-sm text-muted">Total Messages Sent</span>
+                <span className="text-sm text-muted">Total SMS Sent</span>
                 <span className="text-sm font-medium text-foreground">{stats.totalSent.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-sm text-muted">Total Replies</span>
+                <span className="text-sm text-muted">Total SMS Replies</span>
                 <span className="text-sm font-medium text-foreground">{stats.totalReplies.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
