@@ -48,14 +48,16 @@ function msgTime(m: MsgRow): string {
   return m.sent_at || m.created_at;
 }
 
+/** Most recent message in the thread — inbound or outbound — for list ordering. */
 function lastActivity(thread: InboxThread): string {
-  return (
-    thread.last_inbound_at ||
-    thread.last_outbound_at ||
-    thread.last_message?.sent_at ||
-    thread.updated_at ||
-    ''
-  );
+  if (thread.last_message?.sent_at) return thread.last_message.sent_at;
+
+  const times = [thread.last_inbound_at, thread.last_outbound_at, thread.updated_at].filter(
+    Boolean
+  ) as string[];
+  if (times.length === 0) return '';
+
+  return times.reduce((latest, ts) => (new Date(ts) > new Date(latest) ? ts : latest));
 }
 
 function matchesFilter(thread: InboxThread, filter: Filter): boolean {
