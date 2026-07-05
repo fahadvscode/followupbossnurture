@@ -28,11 +28,13 @@ export default function InboxConversationPage() {
   }
 
   return (
-    <LeadConversationPanel
-      campaignId={campaignId}
-      contactId={contactId}
-      campaignType={campaignType}
-      backHref="/inbox"
-    />
+    <div className="-mx-4 -mb-4 flex min-h-0 flex-col sm:-mx-6 lg:mx-auto lg:mb-0 lg:max-w-2xl lg:w-full">
+      <LeadConversationPanel
+        campaignId={campaignId}
+        contactId={contactId}
+        campaignType={campaignType}
+        backHref="/inbox"
+      />
+    </div>
   );
 }

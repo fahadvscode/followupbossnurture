@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import type { DripMessage } from '@/types';
 
@@ -9,10 +10,14 @@ interface Props {
 }
 
 export function ConversationThread({ messages, contactName }: Props) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages]);
+
   if (messages.length === 0) {
-    return (
-      <p className="text-sm text-muted text-center py-8">No messages yet.</p>
-    );
+    return <p className="py-8 text-center text-sm text-muted">No messages yet.</p>;
   }
 
   return (
@@ -26,10 +31,10 @@ export function ConversationThread({ messages, contactName }: Props) {
           >
             <div
               className={cn(
-                'max-w-[80%] rounded-2xl px-4 py-2.5 text-sm',
+                'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm sm:max-w-[80%]',
                 isOutbound
-                  ? 'bg-accent text-white rounded-br-md'
-                  : 'bg-card border border-border text-foreground rounded-bl-md'
+                  ? 'rounded-br-md bg-accent text-white'
+                  : 'rounded-bl-md border border-border bg-card text-foreground'
               )}
             >
               <p className="whitespace-pre-wrap break-words">{msg.body}</p>
@@ -53,6 +58,7 @@ export function ConversationThread({ messages, contactName }: Props) {
           </div>
         );
       })}
+      <div ref={bottomRef} aria-hidden className="h-px shrink-0" />
     </div>
   );
 }
