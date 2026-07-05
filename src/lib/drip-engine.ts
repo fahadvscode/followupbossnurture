@@ -909,7 +909,21 @@ export async function autoEnrollContact(
         });
         continue;
       }
-      if (!freshlyMatched) {
+      if (existing.status === 'paused') {
+        const restartPaused =
+          isNewPersonEvent ||
+          isTagEvent ||
+          hasNewInquiry ||
+          (freshlyMatched && options.webhookEvent !== 'peopleUpdated');
+        if (!restartPaused) {
+          result.skipped.push({
+            campaignId: campaign.id,
+            campaignName: campaign.name,
+            reason: 'paused',
+          });
+          continue;
+        }
+      } else if (!freshlyMatched) {
         result.skipped.push({
           campaignId: campaign.id,
           campaignName: campaign.name,

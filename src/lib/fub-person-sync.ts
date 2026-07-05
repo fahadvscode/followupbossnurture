@@ -104,7 +104,21 @@ async function insertInChunks(
 /** Events / notes whose message or type indicates a fresh lead inquiry. */
 const INQUIRY_PATTERN = /inquir(y|ies)|registered|registration|property\s*(view|inquir)|lead\s*created/i;
 
+/** SMS replies and drip timeline noise must not count as a new inquiry (would restart paused drips). */
+function isDripSmsActivity(e: Record<string, unknown>): boolean {
+  const type = typeof e.type === 'string' ? e.type.toLowerCase() : '';
+  const source = typeof e.source === 'string' ? e.source : '';
+  const message = typeof e.message === 'string' ? e.message : '';
+  const description = typeof e.description === 'string' ? e.description : '';
+  if (/incoming_sms|outgoing_sms|sms/i.test(type)) return true;
+  if (/drip platform/i.test(source)) return true;
+  if (/^\[(SMS Reply|Drip:|Manual reply|Opt-out)/i.test(message)) return true;
+  if (/^\[(SMS Reply|Drip:|Manual reply|Opt-out)/i.test(description)) return true;
+  return false;
+}
+
 function isInquiryEvent(e: Record<string, unknown>): boolean {
+  if (isDripSmsActivity(e)) return false;
   const type = typeof e.type === 'string' ? e.type : '';
   const source = typeof e.source === 'string' ? e.source : '';
   const message = typeof e.message === 'string' ? e.message : '';
@@ -121,6 +135,8 @@ function isInquiryNote(n: Record<string, unknown>): boolean {
   const subject = typeof n.subject === 'string' ? n.subject : '';
   const body = typeof n.body === 'string' ? n.body : '';
   const type = typeof n.type === 'string' ? n.type : '';
+  if (/^\[(SMS Reply|Drip:|Manual reply|Opt-out)/i.test(subject)) return false;
+  if (/^\[(SMS Reply|Drip:|Manual reply|Opt-out)/i.test(body)) return false;
   return INQUIRY_PATTERN.test(subject) || INQUIRY_PATTERN.test(body) || INQUIRY_PATTERN.test(type);
 }
 

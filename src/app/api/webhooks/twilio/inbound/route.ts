@@ -6,6 +6,17 @@ import { normalizePhone } from '@/lib/utils';
 import { handleAiReply } from '@/lib/ai-engine';
 import { notifyAgentOfReply } from '@/lib/notify';
 
+function unwrapOne<T>(row: T | T[] | null | undefined): T | null {
+  if (row == null) return null;
+  return Array.isArray(row) ? (row[0] ?? null) : row;
+}
+
+type CampaignPauseRow = {
+  name?: string;
+  campaign_type?: string;
+  pause_on_sms_reply?: boolean | null;
+};
+
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const params = formDataToTwilioParams(formData);
@@ -73,7 +84,7 @@ async function handleReply(
       .order('enrolled_at', { ascending: false });
 
     const aiPaused = (pausedAi || []).filter(
-      (e) => (e.campaign as { campaign_type?: string } | null)?.campaign_type === 'ai_nurture'
+      (e) => unwrapOne(e.campaign as CampaignPauseRow | CampaignPauseRow[] | null)?.campaign_type === 'ai_nurture'
     );
 
     if (aiPaused.length > 0) {
@@ -104,12 +115,12 @@ async function handleReply(
 
   // ── AI nurture: auto-reply instead of pausing ──────────────────────
   const aiHandled: string[] = [];
-  const primaryCamp = primary?.campaign as { campaign_type?: string } | null;
+  const primaryCamp = unwrapOne(primary?.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
   const primaryIsAiNurture = primaryCamp?.campaign_type === 'ai_nurture';
 
   if (activeList.length > 0 && !isOptOut(body)) {
     for (const enrollment of activeList) {
-      const campRow = enrollment.campaign as { name?: string; campaign_type?: string } | null;
+      const campRow = unwrapOne(enrollment.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
       if (campRow?.campaign_type === 'ai_nurture') {
         // Always mark AI enrollments as "handled" so they are NEVER paused,
         // even if the reply fails — pausing an AI nurture enrollment silences it permanently.
@@ -142,19 +153,30 @@ async function handleReply(
   // Pause standard enrollments on SMS reply when the campaign has "stop on reply" enabled
   const standardToUpdate = activeList.filter((e) => !aiHandled.includes(e.id));
   const toPause = standardToUpdate.filter((e) => {
-    const camp = e.campaign as { pause_on_sms_reply?: boolean | null } | null;
+    const camp = unwrapOne(e.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
     return camp?.pause_on_sms_reply !== false;
   });
 
   if (toPause.length > 0 && !isOptOut(body)) {
     const now = new Date().toISOString();
-    await db
+    const { error: pauseErr } = await db
       .from('drip_enrollments')
       .update({ status: 'paused', paused_at: now })
       .in(
         'id',
         toPause.map((e) => e.id)
       );
+    if (pauseErr) {
+      console.error('Failed to pause enrollments on SMS reply:', pauseErr);
+    } else {
+      console.log(
+        `Paused ${toPause.length} enrollment(s) for contact ${contact.id} after SMS reply`
+      );
+    }
+  } else if (standardToUpdate.length > 0 && !isOptOut(body)) {
+    console.log(
+      `SMS reply from contact ${contact.id}: ${standardToUpdate.length} active enrollment(s) keep running (pause_on_sms_reply off)`
+    );
   }
 
   if (isOptOut(body)) {
@@ -178,7 +200,7 @@ async function handleReply(
 
   if (contact.fub_id) {
     const names = toPause
-      .map((row) => (row.campaign as { name?: string } | null)?.name)
+      .map((row) => unwrapOne(row.campaign as CampaignPauseRow | CampaignPauseRow[] | null)?.name)
       .filter(Boolean) as string[];
     const campaignLabel =
       names.length === 0
@@ -209,17 +231,17 @@ async function handleReply(
   }
 
   const notifyCampaignName =
-    (primary?.campaign as { name?: string } | null)?.name ||
+    primaryCamp?.name ||
     (activeList
-      .map((row) => (row.campaign as { name?: string } | null)?.name)
+      .map((row) => unwrapOne(row.campaign as CampaignPauseRow | CampaignPauseRow[] | null)?.name)
       .filter(Boolean)[0] as string | undefined) ||
     null;
 
   const aiEnrollment = activeList.find(
-    (e) => (e.campaign as { campaign_type?: string } | null)?.campaign_type === 'ai_nurture'
+    (e) => unwrapOne(e.campaign as CampaignPauseRow | CampaignPauseRow[] | null)?.campaign_type === 'ai_nurture'
   );
   const linkEnrollment = aiEnrollment || primary;
-  const linkCamp = linkEnrollment?.campaign as { name?: string; campaign_type?: string } | null;
+  const linkCamp = unwrapOne(linkEnrollment?.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
 
   void notifyAgentOfReply({
     contact: {
