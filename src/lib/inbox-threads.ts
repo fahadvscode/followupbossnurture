@@ -1,4 +1,5 @@
 import { getServiceClient } from '@/lib/supabase';
+import { fetchAllPages } from '@/lib/supabase-fetch-all';
 import { isSmsMessage } from '@/lib/delivery-error-meta';
 import { isThreadUnread, loadInboxReadMap } from '@/lib/inbox-read';
 import { threadMatchesInboxSearch } from '@/lib/inbox-search';
@@ -67,7 +68,7 @@ function matchesFilter(thread: InboxThread, filter: Filter): boolean {
 }
 
 export async function loadInboxThreads(
-  filter: Filter = 'unread',
+  filter: Filter = 'all',
   focusContactId?: string | null,
   searchQuery?: string | null
 ): Promise<{
@@ -79,13 +80,15 @@ export async function loadInboxThreads(
   const threadMap = new Map<string, InboxThread>();
   const readMap = await loadInboxReadMap();
 
-  const { data: messages } = await db
-    .from('drip_messages')
-    .select('contact_id,campaign_id,enrollment_id,direction,body,sent_at,created_at,channel,twilio_sid')
-    .order('created_at', { ascending: false })
-    .limit(5000);
+  const messages = await fetchAllPages<MsgRow>((range) =>
+    db
+      .from('drip_messages')
+      .select('contact_id,campaign_id,enrollment_id,direction,body,sent_at,created_at,channel,twilio_sid')
+      .order('created_at', { ascending: false })
+      .range(range.from, range.to)
+  );
 
-  const smsMessages = ((messages || []) as MsgRow[]).filter(isSmsMessage);
+  const smsMessages = messages.filter(isSmsMessage);
 
   const enrollmentIds = [
     ...new Set(
@@ -174,13 +177,15 @@ export async function loadInboxThreads(
     }
   }
 
-  const { data: aiRows } = await db
-    .from('drip_ai_conversations')
-    .select('*, contact:drip_contacts(id,first_name,last_name,phone,email), campaign:drip_campaigns(id,name,campaign_type)')
-    .order('updated_at', { ascending: false })
-    .limit(500);
+  const aiRows = await fetchAllPages<Record<string, unknown>>((range) =>
+    db
+      .from('drip_ai_conversations')
+      .select('*, contact:drip_contacts(id,first_name,last_name,phone,email), campaign:drip_campaigns(id,name,campaign_type)')
+      .order('updated_at', { ascending: false })
+      .range(range.from, range.to)
+  );
 
-  for (const conv of aiRows || []) {
+  for (const conv of aiRows) {
     contactIds.add(conv.contact_id as string);
     campaignIds.add(conv.campaign_id as string);
 

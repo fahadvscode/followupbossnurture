@@ -13,8 +13,8 @@ import { Input } from '@/components/ui/input';
 type Filter = 'unread' | 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
 const FILTERS: { key: Filter; label: string; icon: React.ElementType; color: string }[] = [
-  { key: 'unread', label: 'Unread', icon: Mail, color: 'text-accent' },
   { key: 'all', label: 'All SMS', icon: Activity, color: 'text-muted' },
+  { key: 'unread', label: 'Unread', icon: Mail, color: 'text-accent' },
   { key: 'needs_action', label: 'Needs Action', icon: AlertCircle, color: 'text-red-500' },
   { key: 'escalated', label: 'Escalated', icon: AlertCircle, color: 'text-orange-500' },
   { key: 'human_takeover', label: 'Taken Over', icon: UserCheck, color: 'text-blue-500' },
@@ -38,7 +38,7 @@ export default function InboxPage() {
 function InboxPageContent() {
   const searchParams = useSearchParams();
   const focusContactId = searchParams.get('contactId');
-  const [filter, setFilter] = useState<Filter>('unread');
+  const [filter, setFilter] = useState<Filter>('all');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [threads, setThreads] = useState<InboxThreadListItemData[]>([]);
@@ -110,7 +110,7 @@ function InboxPageContent() {
       </div>
 
       <p className="text-sm text-muted -mt-2">
-        SMS only.{' '}
+        All SMS conversations. Use the <strong className="font-medium text-foreground/80">Unread</strong> tab for messages you have not opened yet.{' '}
         <span className="inline-flex items-center gap-3 text-xs">
           <span>
             <span className="inline-block h-2 w-2 rounded-full bg-accent mr-1" />
