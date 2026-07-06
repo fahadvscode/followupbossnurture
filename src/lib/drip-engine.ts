@@ -8,8 +8,16 @@ import {
   postEmEmailDelivered,
   applyActionPlan,
 } from './fub';
-import { normalizePhone, formatDripStepDayLabel } from './utils';
-import { deliveryErrorMeta, isTwilioGeoBlockedError } from './delivery-error-meta';
+import { normalizePhone, formatDripStepDayLabel, isPlausibleSmsPhone } from './utils';
+import {
+  deliveryErrorMeta,
+  errorDetailIndicatesUnsubscribed,
+  isTwilioGeoBlockedError,
+  isTwilioInvalidPhoneError,
+  isTwilioUnsubscribedError,
+  summarizeErrorDetail,
+} from './delivery-error-meta';
+import { markContactOptedOut } from './contact-opt-out';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendAiMessage } from './ai-engine';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
@@ -194,6 +202,11 @@ export async function findDueMessagesWithDiagnostics(): Promise<{
     }
 
     if (contact.opted_out) {
+      await db
+        .from('drip_enrollments')
+        .update({ status: 'opted_out' })
+        .eq('id', enrollment.id)
+        .eq('status', 'active');
       pushSkip('contact_opted_out');
       continue;
     }
@@ -264,6 +277,57 @@ export async function findDueMessagesWithDiagnostics(): Promise<{
             : 'no_fub_id';
       await advanceEnrollment(db, enrollment, step.step_number);
       pushSkip('auto_advanced_missing_channel', `Step ${nextStepNumber} (${kind}) was due but ${why}; enrollment advanced without sending.`);
+      continue;
+    }
+
+    if (kind === 'sms' && !isPlausibleSmsPhone(contact.phone)) {
+      const now = new Date().toISOString();
+      await db.from('drip_messages').insert({
+        enrollment_id: enrollment.id,
+        contact_id: contact.id,
+        campaign_id: enrollment.campaign_id,
+        step_number: step.step_number,
+        direction: 'outbound',
+        body: `[SMS skipped — invalid phone number] ${step.message_template}`,
+        status: 'failed',
+        sent_at: now,
+        channel: 'sms',
+        error_detail: {
+          source: 'app',
+          phase: 'config',
+          message: `Invalid phone on file: ${contact.phone}`,
+        },
+      });
+      await advanceEnrollment(db, enrollment, step.step_number);
+      pushSkip(
+        'invalid_phone',
+        `Step ${nextStepNumber} skipped — invalid phone ${contact.phone}`
+      );
+      continue;
+    }
+
+    const { data: priorFail } = await db
+      .from('drip_messages')
+      .select('id, error_detail')
+      .eq('enrollment_id', enrollment.id)
+      .eq('step_number', nextStepNumber)
+      .eq('direction', 'outbound')
+      .eq('status', 'failed')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (priorFail) {
+      if (errorDetailIndicatesUnsubscribed(priorFail.error_detail)) {
+        await markContactOptedOut(db, contact, 'TWILIO_21610');
+        pushSkip('contact_opted_out', 'Prior send failed: unsubscribed recipient');
+      } else {
+        await advanceEnrollment(db, enrollment, step.step_number);
+        pushSkip(
+          'skipped_after_send_failure',
+          summarizeErrorDetail(priorFail.error_detail) || 'Prior send failed for this step'
+        );
+      }
       continue;
     }
 
@@ -351,7 +415,32 @@ async function processSmsStep(msg: DueMessage): Promise<boolean> {
   const now = new Date().toISOString();
 
   const phone = normalizePhone(contact.phone);
-  if (!phone) return false;
+  if (!phone || !isPlausibleSmsPhone(contact.phone)) {
+    const now = new Date().toISOString();
+    await db.from('drip_messages').insert({
+      enrollment_id: enrollment.id,
+      contact_id: contact.id,
+      campaign_id: enrollment.campaign_id,
+      step_number: step.step_number,
+      direction: 'outbound',
+      body: `[SMS skipped — invalid phone number]`,
+      status: 'failed',
+      sent_at: now,
+      channel: 'sms',
+      error_detail: {
+        source: 'app',
+        phase: 'config',
+        message: `Invalid phone: ${contact.phone}`,
+      },
+    });
+    await advanceEnrollment(db, enrollment, step.step_number);
+    safePushToFub(contact.fub_id, {
+      type: 'Note',
+      source: 'Drip Platform',
+      message: `[Drip: ${campaign.name} · ${formatDripStepDayLabel(step)}] SMS skipped — invalid phone on file (${contact.phone}).`,
+    });
+    return true;
+  }
 
   if (shouldDeferProactiveSms()) return false;
 
@@ -385,7 +474,10 @@ async function processSmsStep(msg: DueMessage): Promise<boolean> {
   } catch (error) {
     console.error(`SMS failed ${phone}:`, error);
 
+    const unsubscribed = isTwilioUnsubscribedError(error);
+    const invalidPhone = isTwilioInvalidPhoneError(error);
     const geoBlocked = isTwilioGeoBlockedError(error);
+    const skipStep = unsubscribed || invalidPhone || geoBlocked;
 
     await db.from('drip_messages').insert({
       enrollment_id: enrollment.id,
@@ -395,19 +487,35 @@ async function processSmsStep(msg: DueMessage): Promise<boolean> {
       direction: 'outbound',
       body: geoBlocked
         ? `[SMS skipped — region not enabled in Twilio] ${body}`
-        : body,
+        : invalidPhone
+          ? `[SMS skipped — invalid phone number] ${body}`
+          : unsubscribed
+            ? `[SMS skipped — recipient unsubscribed] ${body}`
+            : body,
       status: 'failed',
       sent_at: now,
       channel: 'sms',
       error_detail: deliveryErrorMeta(error, 'twilio', 'send'),
     });
 
-    if (geoBlocked) {
+    if (unsubscribed) {
+      await markContactOptedOut(db, contact, 'TWILIO_21610');
+      safePushToFub(contact.fub_id, {
+        type: 'Note',
+        source: 'Drip Platform',
+        message: `[Opt-out] ${contact.first_name || ''} ${contact.last_name || ''} is unsubscribed in Twilio — drip stopped for this lead.`,
+      });
+      return true;
+    }
+
+    if (invalidPhone || geoBlocked) {
       await advanceEnrollment(db, enrollment, step.step_number);
       safePushToFub(contact.fub_id, {
         type: 'Note',
         source: 'Drip Platform',
-        message: `[Drip: ${campaign.name} · ${formatDripStepDayLabel(step)}] SMS skipped — Twilio cannot send to ${phone} (region not enabled). Continuing with next drip step.`,
+        message: invalidPhone
+          ? `[Drip: ${campaign.name} · ${formatDripStepDayLabel(step)}] SMS skipped — invalid phone ${phone}. Continuing drip.`
+          : `[Drip: ${campaign.name} · ${formatDripStepDayLabel(step)}] SMS skipped — Twilio cannot send to ${phone} (region not enabled). Continuing with next drip step.`,
       });
       return true;
     }

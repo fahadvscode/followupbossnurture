@@ -23,9 +23,17 @@ export function normalizePhone(phone: string | null): string {
   if (!phone) return '';
   const digits = phone.replace(/\D/g, '');
   if (digits.length === 10) return '+1' + digits;
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+  if (digits.length === 11 && digits.startsWith('1')) return '+1' + digits.slice(1);
   if (digits.startsWith('+')) return phone;
   return '+' + digits;
+}
+
+/** North American SMS: +1 followed by exactly 10 digits. */
+export function isPlausibleSmsPhone(phone: string | null): boolean {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return false;
+  const digits = normalized.replace(/\D/g, '');
+  return digits.length === 11 && digits.startsWith('1');
 }
 
 export function formatDate(date: string | null): string {

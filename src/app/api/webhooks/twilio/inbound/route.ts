@@ -5,6 +5,7 @@ import { pushEvent } from '@/lib/fub';
 import { normalizePhone } from '@/lib/utils';
 import { handleAiReply } from '@/lib/ai-engine';
 import { findAttributionEnrollment } from '@/lib/inbox-messages';
+import { markContactOptedOut } from '@/lib/contact-opt-out';
 import { notifyAgentOfReply } from '@/lib/notify';
 
 function unwrapOne<T>(row: T | T[] | null | undefined): T | null {
@@ -195,22 +196,7 @@ async function handleReply(
   }
 
   if (isOptOut(body)) {
-    await db
-      .from('drip_contacts')
-      .update({ opted_out: true })
-      .eq('id', contact.id);
-
-    await db
-      .from('drip_enrollments')
-      .update({ status: 'opted_out' })
-      .eq('contact_id', contact.id)
-      .in('status', ['active', 'paused']);
-
-    await db.from('drip_opt_outs').insert({
-      contact_id: contact.id,
-      phone: contact.phone,
-      reason: body.trim().toUpperCase(),
-    });
+    await markContactOptedOut(db, contact, body.trim().toUpperCase());
   }
 
   if (contact.fub_id) {

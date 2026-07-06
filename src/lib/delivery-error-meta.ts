@@ -47,15 +47,65 @@ export function deliveryErrorMeta(
 
 /** Twilio 21408 — destination region disabled in Geo Permissions (not retryable). */
 export function isTwilioGeoBlockedError(error: unknown): boolean {
-  const meta = deliveryErrorMeta(error, 'twilio', 'send');
-  const code = meta.code;
-  if (code === 21408 || code === '21408') return true;
-  const msg = meta.message.toLowerCase();
+  return twilioErrorCode(error) === 21408 || matchesTwilioMessage(error, [
+    '21408',
+    'permission to send an sms has not been enabled for the region',
+    'permissions disabled for the destination region',
+  ]);
+}
+
+/** Twilio 21610 — recipient unsubscribed / opted out (not retryable; CASL). */
+export function isTwilioUnsubscribedError(error: unknown): boolean {
+  return twilioErrorCode(error) === 21610 || matchesTwilioMessage(error, [
+    '21610',
+    'unsubscribed recipient',
+    'attempt to send to unsubscribed',
+  ]);
+}
+
+/** Twilio 21211 — invalid destination number (not retryable). */
+export function isTwilioInvalidPhoneError(error: unknown): boolean {
+  return twilioErrorCode(error) === 21211 || matchesTwilioMessage(error, [
+    '21211',
+    "invalid 'to' phone number",
+    'invalid to phone number',
+  ]);
+}
+
+export function isTwilioPermanentSmsError(error: unknown): boolean {
   return (
-    msg.includes('21408') ||
-    msg.includes('permission to send an sms has not been enabled for the region') ||
-    msg.includes('permissions disabled for the destination region')
+    isTwilioGeoBlockedError(error) ||
+    isTwilioUnsubscribedError(error) ||
+    isTwilioInvalidPhoneError(error)
   );
+}
+
+export function twilioErrorCode(error: unknown): number | null {
+  const meta = deliveryErrorMeta(error, 'twilio', 'send');
+  if (meta.code === undefined || meta.code === null) return null;
+  const n = typeof meta.code === 'number' ? meta.code : parseInt(String(meta.code), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Read a stored drip_messages.error_detail JSON blob. */
+export function errorDetailCode(detail: unknown): number | null {
+  if (!detail || typeof detail !== 'object') return null;
+  const code = (detail as Record<string, unknown>).code;
+  if (code === undefined || code === null) return null;
+  const n = typeof code === 'number' ? code : parseInt(String(code), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function errorDetailIndicatesUnsubscribed(detail: unknown): boolean {
+  if (errorDetailCode(detail) === 21610) return true;
+  if (!detail || typeof detail !== 'object') return false;
+  const msg = String((detail as Record<string, unknown>).message || '').toLowerCase();
+  return msg.includes('21610') || msg.includes('unsubscribed');
+}
+
+function matchesTwilioMessage(error: unknown, needles: string[]): boolean {
+  const msg = deliveryErrorMeta(error, 'twilio', 'send').message.toLowerCase();
+  return needles.some((n) => msg.includes(n));
 }
 
 /** One-line + expandable JSON for dashboard / UI */
