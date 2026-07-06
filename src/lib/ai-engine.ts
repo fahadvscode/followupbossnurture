@@ -2,8 +2,9 @@ import OpenAI from 'openai';
 import { getServiceClient } from './supabase';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendSMS, sendMMS } from './twilio';
-import { normalizePhone } from './utils';
+import { normalizePhone, isPlausibleSmsPhone } from './utils';
 import { pushEvent, createFubTask } from './fub';
+import { handleTwilioSmsFailure, pauseAiForSmsFailure } from './twilio-sms-failure';
 import type {
   AiCampaignConfig,
   AiConversation,
@@ -442,13 +443,37 @@ export async function sendAiMessage(opts: {
   let convRow = await ensureAiConversation(enrollmentId, contactId, campaignId);
 
   if (convRow.status !== 'active') return { sent: false, escalated: false };
+  if (contact.opted_out) return { sent: false, escalated: false };
   if (isFollowUp && convRow.follow_up_count >= config.max_follow_ups) {
     await escalateConversation(convRow, config, 'Max follow-ups reached without reply', contact);
     return { sent: false, escalated: true };
   }
 
   const phone = normalizePhone(contact.phone);
-  if (!phone) return { sent: false, escalated: false };
+  if (!phone || !isPlausibleSmsPhone(contact.phone)) {
+    await db.from('drip_messages').insert({
+      enrollment_id: enrollmentId,
+      contact_id: contactId,
+      campaign_id: campaignId,
+      direction: 'outbound',
+      body: '[SMS skipped — invalid phone number]',
+      status: 'failed',
+      sent_at: now,
+      channel: 'sms',
+      error_detail: {
+        source: 'app',
+        phase: 'config',
+        message: `Invalid phone: ${contact.phone}`,
+      },
+    });
+    await pauseAiForSmsFailure(
+      db,
+      enrollmentId,
+      convRow.id,
+      'Invalid phone on file — fix in FUB before resuming'
+    );
+    return { sent: false, escalated: false };
+  }
 
   if (shouldDeferProactiveSms()) {
     return { sent: false, escalated: false, quietHours: true };
@@ -530,16 +555,23 @@ export async function sendAiMessage(opts: {
     return { sent: true, escalated: false };
   } catch (err) {
     console.error('AI message send failed:', err);
-    await db.from('drip_messages').insert({
-      enrollment_id: enrollmentId,
-      contact_id: contactId,
-      campaign_id: campaignId,
-      direction: 'outbound',
+    const { action, stopRetrying } = await handleTwilioSmsFailure({
+      db,
+      error: err,
+      contact,
+      enrollmentId,
+      campaignId,
       body: aiText,
-      status: 'failed',
-      sent_at: now,
-      channel: 'sms',
+      now,
     });
+    if (stopRetrying && action !== 'opt_out') {
+      await pauseAiForSmsFailure(
+        db,
+        enrollmentId,
+        convRow.id,
+        'SMS delivery failed — check phone or Twilio settings'
+      );
+    }
     return { sent: false, escalated: false };
   }
 }
@@ -563,6 +595,7 @@ export async function handleAiReply(opts: {
 
   let convRow = await ensureAiConversation(enrollmentId, contactId, campaignId);
   if (convRow.status !== 'active') return { replied: false, escalated: false };
+  if (contact.opted_out) return { replied: false, escalated: false };
 
   await db
     .from('drip_ai_conversations')
@@ -584,7 +617,9 @@ export async function handleAiReply(opts: {
   }
 
   const phone = normalizePhone(contact.phone);
-  if (!phone) return { replied: false, escalated: false };
+  if (!phone || !isPlausibleSmsPhone(contact.phone)) {
+    return { replied: false, escalated: false };
+  }
 
   // Walk-in / in-person request — reply with handoff message, flag for admin
   const isWalkIn = detectWalkIn(inboundBody);
@@ -664,6 +699,23 @@ export async function handleAiReply(opts: {
     return { replied: true, escalated: false };
   } catch (err) {
     console.error('AI reply send failed:', err);
+    const { action, stopRetrying } = await handleTwilioSmsFailure({
+      db,
+      error: err,
+      contact,
+      enrollmentId,
+      campaignId,
+      body: aiText,
+      now,
+    });
+    if (stopRetrying && action !== 'opt_out') {
+      await pauseAiForSmsFailure(
+        db,
+        enrollmentId,
+        convRow.id,
+        'SMS reply failed — manual follow-up may be needed'
+      );
+    }
     return { replied: false, escalated: false };
   }
 }
@@ -801,6 +853,7 @@ export async function findDueAiFollowUps(): Promise<
       .eq('id', conv.contact_id)
       .single();
     if (!contactRow || contactRow.opted_out) continue;
+    if (!isPlausibleSmsPhone(contactRow.phone)) continue;
 
     results.push({
       enrollment: {
@@ -868,6 +921,7 @@ export async function findDueAiFirstTouches(): Promise<
       .eq('id', conv.contact_id)
       .single();
     if (!contactRow || contactRow.opted_out) continue;
+    if (!isPlausibleSmsPhone(contactRow.phone)) continue;
 
     results.push({
       enrollment: {

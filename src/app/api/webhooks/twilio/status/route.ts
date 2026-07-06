@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { formDataToTwilioParams, validateTwilioWebhookRequest } from '@/lib/twilio';
+import { markContactOptedOut } from '@/lib/contact-opt-out';
+import { isTwilioUnsubscribedError } from '@/lib/delivery-error-meta';
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -67,6 +69,22 @@ export async function POST(request: NextRequest) {
   }
 
   await db.from('drip_messages').update(updatePayload).eq('twilio_sid', messageSid);
+
+  if (mappedStatus === 'failed' && errorCode) {
+    const syntheticError = { code: Number(errorCode), message: errorMessage || '' };
+    if (isTwilioUnsubscribedError(syntheticError)) {
+      const { data: msgRow } = await db
+        .from('drip_messages')
+        .select('contact_id, contact:drip_contacts(id, phone)')
+        .eq('twilio_sid', messageSid)
+        .maybeSingle();
+      const contact = msgRow?.contact as { id: string; phone: string | null } | { id: string; phone: string | null }[] | null;
+      const c = Array.isArray(contact) ? contact[0] : contact;
+      if (c?.id) {
+        await markContactOptedOut(db, c, 'TWILIO_21610_CALLBACK');
+      }
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }

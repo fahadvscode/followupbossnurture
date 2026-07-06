@@ -12,12 +12,11 @@ import { normalizePhone, formatDripStepDayLabel, isPlausibleSmsPhone } from './u
 import {
   deliveryErrorMeta,
   errorDetailIndicatesUnsubscribed,
-  isTwilioGeoBlockedError,
   isTwilioInvalidPhoneError,
-  isTwilioUnsubscribedError,
   summarizeErrorDetail,
 } from './delivery-error-meta';
 import { markContactOptedOut } from './contact-opt-out';
+import { handleTwilioSmsFailure } from './twilio-sms-failure';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendAiMessage } from './ai-engine';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
@@ -474,32 +473,18 @@ async function processSmsStep(msg: DueMessage): Promise<boolean> {
   } catch (error) {
     console.error(`SMS failed ${phone}:`, error);
 
-    const unsubscribed = isTwilioUnsubscribedError(error);
-    const invalidPhone = isTwilioInvalidPhoneError(error);
-    const geoBlocked = isTwilioGeoBlockedError(error);
-    const skipStep = unsubscribed || invalidPhone || geoBlocked;
-
-    await db.from('drip_messages').insert({
-      enrollment_id: enrollment.id,
-      contact_id: contact.id,
-      campaign_id: enrollment.campaign_id,
-      step_number: step.step_number,
-      direction: 'outbound',
-      body: geoBlocked
-        ? `[SMS skipped — region not enabled in Twilio] ${body}`
-        : invalidPhone
-          ? `[SMS skipped — invalid phone number] ${body}`
-          : unsubscribed
-            ? `[SMS skipped — recipient unsubscribed] ${body}`
-            : body,
-      status: 'failed',
-      sent_at: now,
-      channel: 'sms',
-      error_detail: deliveryErrorMeta(error, 'twilio', 'send'),
+    const { action, stopRetrying } = await handleTwilioSmsFailure({
+      db,
+      error,
+      contact,
+      enrollmentId: enrollment.id,
+      campaignId: enrollment.campaign_id,
+      body,
+      stepNumber: step.step_number,
+      now,
     });
 
-    if (unsubscribed) {
-      await markContactOptedOut(db, contact, 'TWILIO_21610');
+    if (action === 'opt_out') {
       safePushToFub(contact.fub_id, {
         type: 'Note',
         source: 'Drip Platform',
@@ -508,12 +493,12 @@ async function processSmsStep(msg: DueMessage): Promise<boolean> {
       return true;
     }
 
-    if (invalidPhone || geoBlocked) {
+    if (stopRetrying) {
       await advanceEnrollment(db, enrollment, step.step_number);
       safePushToFub(contact.fub_id, {
         type: 'Note',
         source: 'Drip Platform',
-        message: invalidPhone
+        message: isTwilioInvalidPhoneError(error)
           ? `[Drip: ${campaign.name} · ${formatDripStepDayLabel(step)}] SMS skipped — invalid phone ${phone}. Continuing drip.`
           : `[Drip: ${campaign.name} · ${formatDripStepDayLabel(step)}] SMS skipped — Twilio cannot send to ${phone} (region not enabled). Continuing with next drip step.`,
       });
@@ -608,7 +593,8 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
       error_detail: deliveryErrorMeta(error, 'email', 'send'),
     });
 
-    return false;
+    await advanceEnrollment(db, enrollment, step.step_number);
+    return true;
   }
 }
 
@@ -641,7 +627,8 @@ async function processFubActionPlanStep(msg: DueMessage): Promise<boolean> {
         'config'
       ),
     });
-    return false;
+    await advanceEnrollment(db, enrollment, step.step_number);
+    return true;
   }
 
   const label =
@@ -692,7 +679,8 @@ async function processFubActionPlanStep(msg: DueMessage): Promise<boolean> {
       error_detail: deliveryErrorMeta(error, 'fub', 'send'),
     });
 
-    return false;
+    await advanceEnrollment(db, enrollment, step.step_number);
+    return true;
   }
 }
 
@@ -730,7 +718,8 @@ async function processFubTaskStep(msg: DueMessage): Promise<boolean> {
         'config'
       ),
     });
-    return false;
+    await advanceEnrollment(db, enrollment, step.step_number);
+    return true;
   }
 
   const offsetMin = Math.max(0, Number(step.fub_due_offset_minutes) || 0);
@@ -792,7 +781,8 @@ async function processFubTaskStep(msg: DueMessage): Promise<boolean> {
       error_detail: deliveryErrorMeta(error, 'fub', 'send'),
     });
 
-    return false;
+    await advanceEnrollment(db, enrollment, step.step_number);
+    return true;
   }
 }
 

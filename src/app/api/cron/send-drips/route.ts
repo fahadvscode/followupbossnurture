@@ -6,6 +6,7 @@ import { isValidSessionCookie } from '@/lib/auth-session';
 import { getServiceClient } from '@/lib/supabase';
 import { summarizeErrorDetail } from '@/lib/delivery-error-meta';
 import { syncRecentFubLeads } from '@/lib/fub-recent-sync';
+import { healStuckEnrollments } from '@/lib/enrollment-heal';
 
 async function authorizeCronRequest(request: NextRequest): Promise<{
   ok: boolean;
@@ -39,6 +40,24 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // ── Self-heal enrollments stuck on permanent send failures ────────
+    let healSummary = {
+      synced_opted_out_enrollments: 0,
+      healed_failed_steps: 0,
+      opted_out_from_twilio: 0,
+      skipped_invalid_phone: 0,
+      paused_ai_enrollments: 0,
+      details: [] as string[],
+    };
+    try {
+      healSummary = await healStuckEnrollments(getServiceClient());
+      if (healSummary.details.length > 0) {
+        console.log('Enrollment heal:', healSummary);
+      }
+    } catch (healErr) {
+      console.error('Enrollment heal error:', healErr);
+    }
+
     // ── Auto-import recent FUB leads (works without webhooks) ─────────
     let fubSynced = 0;
     let fubEnrolled = 0;
@@ -144,6 +163,7 @@ export async function GET(request: NextRequest) {
     }
 
     const payload: Record<string, unknown> = {
+      enrollment_heal: healSummary,
       fub_leads_synced: fubSynced,
       fub_enrollments: fubEnrolled,
       processed: dueMessages.length,

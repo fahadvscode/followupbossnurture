@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { sendSMS } from '@/lib/twilio';
-import { normalizePhone } from '@/lib/utils';
+import { normalizePhone, isPlausibleSmsPhone } from '@/lib/utils';
 import { pushEvent } from '@/lib/fub';
 import { markInboxThreadRead } from '@/lib/inbox-read';
 
@@ -38,7 +38,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const phone = normalizePhone(contact.phone);
-  if (!phone) return NextResponse.json({ error: 'Invalid contact phone' }, { status: 400 });
+  if (!phone || !isPlausibleSmsPhone(contact.phone)) {
+    return NextResponse.json({ error: 'Invalid contact phone number' }, { status: 400 });
+  }
 
   const { data: enrollment } = await db
     .from('drip_enrollments')
