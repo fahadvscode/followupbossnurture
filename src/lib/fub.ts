@@ -107,6 +107,16 @@ export async function getPersonById(id: number): Promise<FUBPerson> {
   return data;
 }
 
+/** Append tags on a FUB person without removing existing tags (PUT ?mergeTags=true). */
+export async function mergePersonTags(personId: number, tags: string[]): Promise<void> {
+  const cleaned = tags.map((t) => t.trim()).filter(Boolean);
+  if (cleaned.length === 0) return;
+  await fubFetch(`/people/${personId}?mergeTags=true`, {
+    method: 'PUT',
+    body: JSON.stringify({ tags: cleaned }),
+  });
+}
+
 /** Resolve FUB person id(s) by email (GET /people?email=…). */
 export async function searchPeopleByEmail(email: string): Promise<FUBPerson[]> {
   const trimmed = email.trim();

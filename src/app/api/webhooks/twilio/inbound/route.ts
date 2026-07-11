@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { formDataToTwilioParams, isOptOut, validateTwilioWebhookRequest } from '@/lib/twilio';
 import { pushEvent } from '@/lib/fub';
+import { tagLeadRepliedInFub } from '@/lib/fub-replied-tag';
 import { normalizePhone } from '@/lib/utils';
 import { handleAiReply } from '@/lib/ai-engine';
 import { findAttributionEnrollment } from '@/lib/inbox-messages';
@@ -200,6 +201,10 @@ async function handleReply(
   }
 
   if (contact.fub_id) {
+    void tagLeadRepliedInFub(db, contact).catch((e) =>
+      console.error('Failed to add replied tag in FUB:', e)
+    );
+
     const names = toPause
       .map((row) => unwrapOne(row.campaign as CampaignPauseRow | CampaignPauseRow[] | null)?.name)
       .filter(Boolean) as string[];
