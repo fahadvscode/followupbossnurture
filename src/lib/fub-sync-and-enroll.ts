@@ -24,6 +24,7 @@ export async function syncFubPersonAndEnroll(
 
   const previousTags = (beforeRow?.tags as string[]) || [];
   const previousSourceCategory = (beforeRow?.source_category as string) || '';
+  const isNewContact = !beforeRow;
 
   const { contactId, opted_out, hasNewInquiry } = await syncFubPersonDeep(db, personId);
 
@@ -46,6 +47,7 @@ export async function syncFubPersonAndEnroll(
         previousSourceCategory,
         webhookEvent,
         hasNewInquiry,
+        isNewContact,
       }
     );
   }

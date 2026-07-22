@@ -909,7 +909,53 @@ export type AutoEnrollOptions = {
   webhookEvent?: string;
   /** True when the last sync found a fresh inquiry event/note from FUB (e.g. new Zapier lead ad). */
   hasNewInquiry?: boolean;
+  /** True when the contact row didn't exist before this sync — first-time import. */
+  isNewContact?: boolean;
 };
+
+/**
+ * A campaign has a "fresh trigger signal" when at least one of its trigger tags
+ * or trigger sources is present now but was NOT before this sync. Prevents
+ * enrolling leads based on stale, historical tags (e.g. an old city tag from
+ * months ago re-firing when a new inquiry updates the person).
+ */
+function hasFreshTriggerSignal(
+  campaign: {
+    trigger_tags?: string[];
+    trigger_sources?: string[];
+    trigger_groups?: TriggerGroup[];
+  },
+  currentTags: string[],
+  previousTags: string[],
+  sourceCategory: string,
+  previousSourceCategory: string
+): boolean {
+  const prev = new Set(previousTags.map((t) => t.trim().toLowerCase()));
+  const cur = new Set(currentTags.map((t) => t.trim().toLowerCase()));
+
+  const isFreshTag = (tag: string): boolean => {
+    const n = tag.trim().toLowerCase();
+    return Boolean(n) && cur.has(n) && !prev.has(n);
+  };
+
+  for (const t of campaign.trigger_tags || []) {
+    if (isFreshTag(t)) return true;
+  }
+  for (const g of campaign.trigger_groups || []) {
+    for (const t of g?.tags || []) {
+      if (isFreshTag(t)) return true;
+    }
+  }
+
+  const src = (sourceCategory || '').trim().toLowerCase();
+  const prevSrc = (previousSourceCategory || '').trim().toLowerCase();
+  if (src && src !== prevSrc) {
+    for (const s of campaign.trigger_sources || []) {
+      if (s.trim().toLowerCase() === src) return true;
+    }
+  }
+  return false;
+}
 
 export type AutoEnrollResult = {
   enrolled: { campaignId: string; campaignName: string; action: 'created' | 'restarted' }[];
@@ -987,6 +1033,7 @@ export async function autoEnrollContact(
   const previousSource = options.previousSourceCategory || '';
   const isNewPersonEvent = options.webhookEvent === 'peopleCreated';
   const hasNewInquiry = Boolean(options.hasNewInquiry);
+  const isNewContact = Boolean(options.isNewContact);
 
   for (const campaign of campaigns) {
     const matchesNow = campaignTriggersForContact(campaign, normalizedTags, sourceCategory);
@@ -1013,8 +1060,28 @@ export async function autoEnrollContact(
       previousTags,
       previousSource
     );
-    const freshlyMatched =
-      campaignNewlyMatched || isNewPersonEvent || hasNewInquiry;
+    const hasFreshSignal = hasFreshTriggerSignal(
+      campaign,
+      normalizedTags,
+      previousTags,
+      sourceCategory,
+      previousSource
+    );
+    /**
+     * A campaign may fire when:
+     *   • the contact is brand new to our platform (import) OR
+     *   • FUB just created the person (peopleCreated) OR
+     *   • at least one of the campaign's trigger tags/source was freshly added on this sync.
+     *
+     * `hasNewInquiry` alone is intentionally NOT enough — a lead with historical
+     * city tags would otherwise re-enroll in every matching city campaign whenever
+     * a new inquiry event lands.
+     */
+    const shouldEnroll =
+      isNewContact ||
+      isNewPersonEvent ||
+      hasFreshSignal ||
+      (hasNewInquiry && campaignNewlyMatched);
 
     const { data: existing } = await db
       .from('drip_enrollments')
@@ -1059,21 +1126,20 @@ export async function autoEnrollContact(
       }
 
       if (existing.status === 'paused' || existing.status === 'completed') {
-        const restartPaused =
-          !hasReplied && (isNewPersonEvent || campaignNewlyMatched || hasNewInquiry);
+        const restartPaused = !hasReplied && shouldEnroll;
         if (!restartPaused) {
           result.skipped.push({
             campaignId: campaign.id,
             campaignName: campaign.name,
-            reason: hasReplied ? 'paused_after_reply' : 'paused',
+            reason: hasReplied ? 'paused_after_reply' : 'stale_trigger',
           });
           continue;
         }
-      } else if (!freshlyMatched) {
+      } else if (!shouldEnroll) {
         result.skipped.push({
           campaignId: campaign.id,
           campaignName: campaign.name,
-          reason: 'already_enrolled',
+          reason: 'stale_trigger',
         });
         continue;
       }
@@ -1088,6 +1154,15 @@ export async function autoEnrollContact(
         campaignId: campaign.id,
         campaignName: campaign.name,
         action: 'restarted',
+      });
+      continue;
+    }
+
+    if (!shouldEnroll) {
+      result.skipped.push({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        reason: 'stale_trigger',
       });
       continue;
     }
