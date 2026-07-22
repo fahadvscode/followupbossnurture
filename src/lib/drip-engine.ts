@@ -964,7 +964,6 @@ export async function autoEnrollContact(
   const previousTags = Array.isArray(options.previousTags) ? options.previousTags : [];
   const previousSource = options.previousSourceCategory || '';
   const isNewPersonEvent = options.webhookEvent === 'peopleCreated';
-  const isTagEvent = options.webhookEvent === 'peopleTagsCreated';
   const hasNewInquiry = Boolean(options.hasNewInquiry);
 
   for (const campaign of campaigns) {
@@ -985,11 +984,15 @@ export async function autoEnrollContact(
       continue;
     }
 
+    const campaignNewlyMatched = campaignNewlyMatches(
+      campaign,
+      normalizedTags,
+      sourceCategory,
+      previousTags,
+      previousSource
+    );
     const freshlyMatched =
-      campaignNewlyMatches(campaign, normalizedTags, sourceCategory, previousTags, previousSource) ||
-      isNewPersonEvent ||
-      isTagEvent ||
-      hasNewInquiry;
+      campaignNewlyMatched || isNewPersonEvent || hasNewInquiry;
 
     const { data: existing } = await db
       .from('drip_enrollments')
@@ -1008,11 +1011,7 @@ export async function autoEnrollContact(
         continue;
       }
       if (existing.status === 'paused') {
-        const restartPaused =
-          isNewPersonEvent ||
-          isTagEvent ||
-          hasNewInquiry ||
-          (freshlyMatched && options.webhookEvent !== 'peopleUpdated');
+        const restartPaused = isNewPersonEvent || hasNewInquiry || campaignNewlyMatched;
         if (!restartPaused) {
           result.skipped.push({
             campaignId: campaign.id,

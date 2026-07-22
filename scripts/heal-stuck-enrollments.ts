@@ -26,6 +26,7 @@ async function main() {
   console.log(`  Advanced past failed step:    ${result.healed_failed_steps}`);
   console.log(`  Skipped invalid phone:        ${result.skipped_invalid_phone}`);
   console.log(`  Paused AI enrollments:        ${result.paused_ai_enrollments}`);
+  console.log(`  Paused after SMS reply:       ${result.paused_on_reply}`);
 
   if (result.details.length === 0) {
     console.log('\nNothing to heal — all enrollments look healthy.');

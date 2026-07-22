@@ -8,6 +8,7 @@ import { handleAiReply } from '@/lib/ai-engine';
 import { findAttributionEnrollment } from '@/lib/inbox-messages';
 import { markContactOptedOut } from '@/lib/contact-opt-out';
 import { notifyAgentOfReply } from '@/lib/notify';
+import { pauseStandardEnrollmentsOnSmsReply } from '@/lib/pause-on-sms-reply';
 
 function unwrapOne<T>(row: T | T[] | null | undefined): T | null {
   if (row == null) return null;
@@ -174,26 +175,19 @@ async function handleReply(
     return camp?.pause_on_sms_reply !== false;
   });
 
-  if (toPause.length > 0 && !isOptOut(body)) {
-    const now = new Date().toISOString();
-    const { error: pauseErr } = await db
-      .from('drip_enrollments')
-      .update({ status: 'paused', paused_at: now })
-      .in(
-        'id',
-        toPause.map((e) => e.id)
-      );
-    if (pauseErr) {
-      console.error('Failed to pause enrollments on SMS reply:', pauseErr);
-    } else {
+  if (!isOptOut(body)) {
+    const pausedIds = await pauseStandardEnrollmentsOnSmsReply(db, contact.id, {
+      excludeEnrollmentIds: aiHandled,
+    });
+    if (pausedIds.length > 0) {
       console.log(
-        `Paused ${toPause.length} enrollment(s) for contact ${contact.id} after SMS reply`
+        `Paused ${pausedIds.length} enrollment(s) for contact ${contact.id} after SMS reply`
+      );
+    } else if (standardToUpdate.length > 0) {
+      console.log(
+        `SMS reply from contact ${contact.id}: ${standardToUpdate.length} active enrollment(s) keep running (pause_on_sms_reply off)`
       );
     }
-  } else if (standardToUpdate.length > 0 && !isOptOut(body)) {
-    console.log(
-      `SMS reply from contact ${contact.id}: ${standardToUpdate.length} active enrollment(s) keep running (pause_on_sms_reply off)`
-    );
   }
 
   if (isOptOut(body)) {

@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
       opted_out_from_twilio: 0,
       skipped_invalid_phone: 0,
       paused_ai_enrollments: 0,
+      paused_on_reply: 0,
       details: [] as string[],
     };
     try {

@@ -14,6 +14,7 @@ export type HealStuckResult = {
   opted_out_from_twilio: number;
   skipped_invalid_phone: number;
   paused_ai_enrollments: number;
+  paused_on_reply: number;
   details: string[];
 };
 
@@ -30,13 +31,14 @@ export async function healStuckEnrollments(db: Db): Promise<HealStuckResult> {
     opted_out_from_twilio: 0,
     skipped_invalid_phone: 0,
     paused_ai_enrollments: 0,
+    paused_on_reply: 0,
     details: [],
   };
 
   const { data: activeEnrollments } = await db
     .from('drip_enrollments')
     .select(
-      'id, contact_id, campaign_id, status, current_step, contact:drip_contacts(id, first_name, last_name, phone, opted_out), campaign:drip_campaigns(name, campaign_type)'
+      'id, contact_id, campaign_id, status, current_step, enrolled_at, contact:drip_contacts(id, first_name, last_name, phone, opted_out), campaign:drip_campaigns(name, campaign_type, pause_on_sms_reply)'
     )
     .eq('status', 'active');
 
@@ -51,12 +53,43 @@ export async function healStuckEnrollments(db: Db): Promise<HealStuckResult> {
       } | null
     );
     const campaign = unwrapOne(
-      row.campaign as unknown as { name: string; campaign_type?: string } | null
+      row.campaign as unknown as {
+        name: string;
+        campaign_type?: string;
+        pause_on_sms_reply?: boolean | null;
+      } | null
     );
     const label =
       `${contact?.first_name || ''} ${contact?.last_name || ''}`.trim() ||
       contact?.phone ||
       row.contact_id;
+
+    if (
+      campaign?.campaign_type !== 'ai_nurture' &&
+      campaign?.pause_on_sms_reply !== false &&
+      row.enrolled_at
+    ) {
+      const { count: inboundCount } = await db
+        .from('drip_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('contact_id', row.contact_id)
+        .eq('direction', 'inbound')
+        .eq('channel', 'sms')
+        .gte('sent_at', row.enrolled_at as string);
+
+      if ((inboundCount || 0) > 0) {
+        const now = new Date().toISOString();
+        await db
+          .from('drip_enrollments')
+          .update({ status: 'paused', paused_at: now })
+          .eq('id', row.id);
+        result.paused_on_reply++;
+        result.details.push(
+          `${label}: paused ${campaign?.name || 'campaign'} — lead already replied by SMS`
+        );
+        continue;
+      }
+    }
 
     if (contact?.opted_out) {
       await db.from('drip_enrollments').update({ status: 'opted_out' }).eq('id', row.id);
