@@ -19,6 +19,11 @@ import { markContactOptedOut } from './contact-opt-out';
 import { handleTwilioSmsFailure } from './twilio-sms-failure';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendAiMessage } from './ai-engine';
+import {
+  contactHasInboundSmsSince,
+  pauseEnrollmentIfLeadReplied,
+  shouldPauseStandardDripOnSmsReply,
+} from './lead-replied';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
 
 interface CampaignSendContext {
@@ -119,6 +124,7 @@ type CampaignRowEmbed = {
   status: string;
   twilio_from_number: string | null;
   campaign_type?: string | null;
+  pause_on_sms_reply?: boolean | null;
 };
 
 function unwrapOne<T>(row: T | T[] | null | undefined): T | null {
@@ -208,6 +214,14 @@ export async function findDueMessagesWithDiagnostics(): Promise<{
         .eq('status', 'active');
       pushSkip('contact_opted_out');
       continue;
+    }
+
+    if (campaignRow && shouldPauseStandardDripOnSmsReply(campaignRow)) {
+      const paused = await pauseEnrollmentIfLeadReplied(db, enrollment, campaignRow);
+      if (paused) {
+        pushSkip('lead_replied', 'Lead sent inbound SMS — drip paused');
+        continue;
+      }
     }
 
     const campaign: CampaignSendContext = {
@@ -919,8 +933,16 @@ async function restartEnrollmentForCampaign(
   db: ReturnType<typeof getServiceClient>,
   enrollmentId: string,
   contactId: string,
-  campaign: { id: string; campaign_type?: string | null }
+  campaign: { id: string; campaign_type?: string | null; pause_on_sms_reply?: boolean | null },
+  enrolledAt: string
 ) {
+  if (
+    shouldPauseStandardDripOnSmsReply(campaign) &&
+    (await contactHasInboundSmsSince(db, contactId, enrolledAt))
+  ) {
+    return;
+  }
+
   const now = new Date().toISOString();
   await db
     .from('drip_enrollments')
@@ -996,7 +1018,7 @@ export async function autoEnrollContact(
 
     const { data: existing } = await db
       .from('drip_enrollments')
-      .select('id, status')
+      .select('id, status, enrolled_at')
       .eq('contact_id', contactId)
       .eq('campaign_id', campaign.id)
       .maybeSingle();
@@ -1010,13 +1032,40 @@ export async function autoEnrollContact(
         });
         continue;
       }
-      if (existing.status === 'paused') {
-        const restartPaused = isNewPersonEvent || hasNewInquiry || campaignNewlyMatched;
+
+      const hasReplied =
+        shouldPauseStandardDripOnSmsReply(campaign) &&
+        (await contactHasInboundSmsSince(db, contactId, existing.enrolled_at));
+
+      if (existing.status === 'active') {
+        if (hasReplied) {
+          await db
+            .from('drip_enrollments')
+            .update({ status: 'paused', paused_at: new Date().toISOString() })
+            .eq('id', existing.id);
+          result.skipped.push({
+            campaignId: campaign.id,
+            campaignName: campaign.name,
+            reason: 'paused_after_reply',
+          });
+        } else {
+          result.skipped.push({
+            campaignId: campaign.id,
+            campaignName: campaign.name,
+            reason: 'already_enrolled',
+          });
+        }
+        continue;
+      }
+
+      if (existing.status === 'paused' || existing.status === 'completed') {
+        const restartPaused =
+          !hasReplied && (isNewPersonEvent || campaignNewlyMatched || hasNewInquiry);
         if (!restartPaused) {
           result.skipped.push({
             campaignId: campaign.id,
             campaignName: campaign.name,
-            reason: 'paused',
+            reason: hasReplied ? 'paused_after_reply' : 'paused',
           });
           continue;
         }
@@ -1028,7 +1077,13 @@ export async function autoEnrollContact(
         });
         continue;
       }
-      await restartEnrollmentForCampaign(db, existing.id, contactId, campaign);
+      await restartEnrollmentForCampaign(
+        db,
+        existing.id,
+        contactId,
+        campaign,
+        existing.enrolled_at
+      );
       result.enrolled.push({
         campaignId: campaign.id,
         campaignName: campaign.name,

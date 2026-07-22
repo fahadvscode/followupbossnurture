@@ -40,7 +40,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // ── Self-heal enrollments stuck on permanent send failures ────────
+    // ── Auto-import recent FUB leads (works without webhooks) ─────────
+    let fubSynced = 0;
+    let fubEnrolled = 0;
+    try {
+      const fub = await syncRecentFubLeads();
+      fubSynced = fub.synced;
+      fubEnrolled = fub.enrolled;
+    } catch (fubErr) {
+      console.error('FUB recent sync error:', fubErr);
+    }
+
+    // ── Self-heal after FUB sync (sync can wrongly re-activate enrollments) ─
     let healSummary = {
       synced_opted_out_enrollments: 0,
       healed_failed_steps: 0,
@@ -57,17 +68,6 @@ export async function GET(request: NextRequest) {
       }
     } catch (healErr) {
       console.error('Enrollment heal error:', healErr);
-    }
-
-    // ── Auto-import recent FUB leads (works without webhooks) ─────────
-    let fubSynced = 0;
-    let fubEnrolled = 0;
-    try {
-      const fub = await syncRecentFubLeads();
-      fubSynced = fub.synced;
-      fubEnrolled = fub.enrolled;
-    } catch (fubErr) {
-      console.error('FUB recent sync error:', fubErr);
     }
 
     // ── Standard drip campaigns ──────────────────────────────────────

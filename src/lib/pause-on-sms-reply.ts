@@ -1,4 +1,5 @@
 import type { getServiceClient } from '@/lib/supabase';
+import { shouldPauseStandardDripOnSmsReply } from '@/lib/lead-replied';
 
 type Db = ReturnType<typeof getServiceClient>;
 
@@ -29,8 +30,7 @@ export async function pauseStandardEnrollmentsOnSmsReply(
   const toPause = (activeRows || []).filter((row) => {
     if (exclude.has(row.id)) return false;
     const camp = unwrapOne(row.campaign as CampaignPauseRow | CampaignPauseRow[] | null);
-    if (camp?.campaign_type === 'ai_nurture') return false;
-    return camp?.pause_on_sms_reply !== false;
+    return camp ? shouldPauseStandardDripOnSmsReply(camp) : false;
   });
 
   if (toPause.length === 0) return [];

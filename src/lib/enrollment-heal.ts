@@ -4,6 +4,7 @@ import {
   errorDetailIndicatesUnsubscribed,
   summarizeErrorDetail,
 } from '@/lib/delivery-error-meta';
+import { pauseEnrollmentIfLeadReplied } from '@/lib/lead-replied';
 import { isPlausibleSmsPhone } from '@/lib/utils';
 
 type Db = ReturnType<typeof getServiceClient>;
@@ -64,28 +65,20 @@ export async function healStuckEnrollments(db: Db): Promise<HealStuckResult> {
       contact?.phone ||
       row.contact_id;
 
-    if (
-      campaign?.campaign_type !== 'ai_nurture' &&
-      campaign?.pause_on_sms_reply !== false &&
-      row.enrolled_at
-    ) {
-      const { count: inboundCount } = await db
-        .from('drip_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('contact_id', row.contact_id)
-        .eq('direction', 'inbound')
-        .eq('channel', 'sms')
-        .gte('sent_at', row.enrolled_at as string);
-
-      if ((inboundCount || 0) > 0) {
-        const now = new Date().toISOString();
-        await db
-          .from('drip_enrollments')
-          .update({ status: 'paused', paused_at: now })
-          .eq('id', row.id);
+    if (campaign && contact) {
+      const paused = await pauseEnrollmentIfLeadReplied(
+        db,
+        {
+          id: row.id as string,
+          contact_id: row.contact_id as string,
+          enrolled_at: row.enrolled_at as string,
+        },
+        campaign
+      );
+      if (paused) {
         result.paused_on_reply++;
         result.details.push(
-          `${label}: paused ${campaign?.name || 'campaign'} — lead already replied by SMS`
+          `${label}: paused ${campaign.name || 'campaign'} — lead already replied by SMS`
         );
         continue;
       }
