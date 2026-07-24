@@ -9,6 +9,7 @@ import {
   createEmCampaign,
   postEmEmailDelivered,
   applyActionPlan,
+  resolveFubUserIdByAgentName,
 } from './fub';
 import { normalizePhone, formatDripStepDayLabel, isPlausibleSmsPhone } from './utils';
 import {
@@ -63,10 +64,10 @@ function resolveFubEmailUserId(step: DripCampaignStep): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function resolveFubTaskAssignee(
+async function resolveFubTaskAssignee(
   step: DripCampaignStep,
   contact: DripContact
-): { assignedUserId?: number; assignedTo?: string } {
+): Promise<{ assignedUserId?: number }> {
   const sid = step.fub_assigned_user_id;
   if (sid != null && Number.isFinite(Number(sid))) {
     return { assignedUserId: Number(sid) };
@@ -77,7 +78,10 @@ function resolveFubTaskAssignee(
     if (Number.isFinite(n)) return { assignedUserId: n };
   }
   const name = contact.assigned_agent?.trim();
-  if (name) return { assignedTo: name };
+  if (name) {
+    const id = await resolveFubUserIdByAgentName(name);
+    if (id != null) return { assignedUserId: id };
+  }
   return {};
 }
 
@@ -729,8 +733,8 @@ async function processFubTaskStep(msg: DueMessage): Promise<boolean> {
     (step.fub_task_name_template || '').trim() || step.message_template || '';
   const taskName = renderTemplate(nameTemplate, vars).trim() || `Follow up — ${campaign.name}`;
 
-  const assignee = resolveFubTaskAssignee(step, contact);
-  if (assignee.assignedUserId == null && !assignee.assignedTo) {
+  const assignee = await resolveFubTaskAssignee(step, contact);
+  if (assignee.assignedUserId == null) {
     console.error('FUB task step: no assignee resolvable');
     await db.from('drip_messages').insert({
       enrollment_id: enrollment.id,
@@ -768,7 +772,6 @@ async function processFubTaskStep(msg: DueMessage): Promise<boolean> {
       type: step.fub_task_type || 'Call',
       dueDateTime,
       assignedUserId: assignee.assignedUserId,
-      assignedTo: assignee.assignedTo,
       remindSecondsBefore: remind,
     });
 

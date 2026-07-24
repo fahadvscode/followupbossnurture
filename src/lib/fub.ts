@@ -324,7 +324,6 @@ export async function createFubTask(args: {
   type: string;
   dueDateTime: string;
   assignedUserId?: number;
-  assignedTo?: string;
   remindSecondsBefore?: number;
 }): Promise<unknown> {
   const body: Record<string, unknown> = {
@@ -334,12 +333,42 @@ export async function createFubTask(args: {
     dueDateTime: args.dueDateTime,
   };
   if (args.assignedUserId != null) body.assignedUserId = args.assignedUserId;
-  if (args.assignedTo) body.assignedTo = args.assignedTo;
   if (args.remindSecondsBefore != null) body.remindSecondsBefore = args.remindSecondsBefore;
   return fubFetch('/tasks', {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+let fubUsersCache: { fetchedAt: number; users: FubUserLite[] } | null = null;
+const FUB_USERS_CACHE_MS = 5 * 60 * 1000;
+
+function normalizeAgentName(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Map FUB person assigned-agent display name → numeric user id for POST /tasks. */
+export async function resolveFubUserIdByAgentName(agentName: string): Promise<number | undefined> {
+  const needle = normalizeAgentName(agentName);
+  if (!needle) return undefined;
+
+  const now = Date.now();
+  if (!fubUsersCache || now - fubUsersCache.fetchedAt > FUB_USERS_CACHE_MS) {
+    fubUsersCache = { fetchedAt: now, users: await listAllFubUsers() };
+  }
+
+  const active = fubUsersCache.users.filter(
+    (u) => !u.status || u.status.toLowerCase() === 'active'
+  );
+
+  for (const u of active) {
+    if (normalizeAgentName(u.name) === needle) return u.id;
+  }
+  for (const u of active) {
+    const n = normalizeAgentName(u.name);
+    if (n.includes(needle) || needle.includes(n)) return u.id;
+  }
+  return undefined;
 }
 
 /** List action plans (GET /actionPlans). */
