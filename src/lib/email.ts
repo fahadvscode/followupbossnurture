@@ -46,7 +46,8 @@ export async function sendSmtpIfConfigured(
   to: string,
   subject: string,
   text: string,
-  html: string
+  html: string,
+  extraHeaders?: Record<string, string>
 ): Promise<boolean> {
   const host = process.env.SMTP_HOST?.trim();
   if (!host) return false;
@@ -87,6 +88,9 @@ export async function sendSmtpIfConfigured(
     subject,
     text,
     html,
+    ...(extraHeaders && Object.keys(extraHeaders).length > 0
+      ? { headers: extraHeaders }
+      : {}),
   });
 
   return true;

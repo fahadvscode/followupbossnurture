@@ -1,6 +1,8 @@
 import { getServiceClient } from './supabase';
 import { sendSMS, renderTemplate } from './twilio';
 import { plainTextToHtml, htmlToPlainText, sendSmtpIfConfigured } from './email';
+import { appendCaslFooter } from './email-footer';
+import { unsubscribeOneClickUrl, unsubscribeUrl } from './unsubscribe';
 import {
   pushEvent,
   createFubTask,
@@ -536,8 +538,10 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
   const subject = renderTemplate(step.email_subject_template || 'Follow up', vars).trim() || 'Follow up';
   const bodyRaw = renderTemplate(step.message_template, vars);
   const isHtml = step.email_body_format === 'html';
-  const html = isHtml ? bodyRaw : plainTextToHtml(bodyRaw);
-  const body = isHtml ? htmlToPlainText(bodyRaw) || htmlToPlainText(html) : bodyRaw;
+  const htmlRaw = isHtml ? bodyRaw : plainTextToHtml(bodyRaw);
+  const textRaw = isHtml ? htmlToPlainText(bodyRaw) || htmlToPlainText(htmlRaw) : bodyRaw;
+
+  const { html, text: body } = appendCaslFooter(contact.id, htmlRaw, textRaw);
 
   try {
     const originId = `${enrollment.id}-${step.step_number}-${Date.now()}`;
@@ -550,11 +554,23 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
       bodyHtml: html,
     });
 
+    // RFC 2369 + 8058 headers so Gmail / Outlook show the one-click "Unsubscribe" button.
+    const listUnsub = unsubscribeUrl(contact.id);
+    const oneClick = unsubscribeOneClickUrl(contact.id);
+    const smtpHeaders: Record<string, string> =
+      listUnsub && oneClick
+        ? {
+            'List-Unsubscribe': `<${oneClick}>, <${listUnsub}>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            'List-Id': `${campaign.name} <drip.${(process.env.EMAIL_FROM || '').replace(/.*@/, '')}>`,
+          }
+        : {};
+
     let smtpSent = false;
     let smtpError: string | undefined;
     if (process.env.SMTP_HOST?.trim()) {
       try {
-        smtpSent = await sendSmtpIfConfigured(to, subject, body, html);
+        smtpSent = await sendSmtpIfConfigured(to, subject, body, html, smtpHeaders);
       } catch (smtpErr) {
         smtpError = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
         console.error(`SMTP failed for ${to} (FUB timeline will still log):`, smtpErr);
