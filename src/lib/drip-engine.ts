@@ -9,7 +9,7 @@ import {
   createEmCampaign,
   postEmEmailDelivered,
   applyActionPlan,
-  resolveFubUserIdByAgentName,
+  resolveFubUserIdByName,
 } from './fub';
 import { normalizePhone, formatDripStepDayLabel, isPlausibleSmsPhone } from './utils';
 import {
@@ -79,8 +79,8 @@ async function resolveFubTaskAssignee(
   }
   const name = contact.assigned_agent?.trim();
   if (name) {
-    const id = await resolveFubUserIdByAgentName(name);
-    if (id != null) return { assignedUserId: id };
+    const resolved = await resolveFubUserIdByName(name);
+    if (resolved != null) return { assignedUserId: resolved };
   }
   return {};
 }

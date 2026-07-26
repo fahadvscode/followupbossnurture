@@ -340,35 +340,24 @@ export async function createFubTask(args: {
   });
 }
 
-let fubUsersCache: { fetchedAt: number; users: FubUserLite[] } | null = null;
-const FUB_USERS_CACHE_MS = 5 * 60 * 1000;
+/** Cached FUB user list — refreshed once per process lifecycle. */
+let _cachedFubUsers: FubUserLite[] | null = null;
+let _userCacheExpiry = 0;
 
-function normalizeAgentName(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, ' ');
+async function getCachedFubUsers(): Promise<FubUserLite[]> {
+  if (_cachedFubUsers && Date.now() < _userCacheExpiry) return _cachedFubUsers;
+  _cachedFubUsers = await listAllFubUsers();
+  _userCacheExpiry = Date.now() + 10 * 60 * 1000;
+  return _cachedFubUsers;
 }
 
-/** Map FUB person assigned-agent display name → numeric user id for POST /tasks. */
-export async function resolveFubUserIdByAgentName(agentName: string): Promise<number | undefined> {
-  const needle = normalizeAgentName(agentName);
+/** Resolve a FUB user's numeric ID from their display name (case-insensitive). */
+export async function resolveFubUserIdByName(name: string): Promise<number | undefined> {
+  const needle = name.trim().toLowerCase();
   if (!needle) return undefined;
-
-  const now = Date.now();
-  if (!fubUsersCache || now - fubUsersCache.fetchedAt > FUB_USERS_CACHE_MS) {
-    fubUsersCache = { fetchedAt: now, users: await listAllFubUsers() };
-  }
-
-  const active = fubUsersCache.users.filter(
-    (u) => !u.status || u.status.toLowerCase() === 'active'
-  );
-
-  for (const u of active) {
-    if (normalizeAgentName(u.name) === needle) return u.id;
-  }
-  for (const u of active) {
-    const n = normalizeAgentName(u.name);
-    if (n.includes(needle) || needle.includes(n)) return u.id;
-  }
-  return undefined;
+  const users = await getCachedFubUsers();
+  const match = users.find((u) => u.name.toLowerCase() === needle);
+  return match?.id;
 }
 
 /** List action plans (GET /actionPlans). */
