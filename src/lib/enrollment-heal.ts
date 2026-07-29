@@ -2,6 +2,7 @@ import type { getServiceClient } from '@/lib/supabase';
 import { markContactOptedOut } from '@/lib/contact-opt-out';
 import {
   errorDetailIndicatesUnsubscribed,
+  isTwilioPermanentStoredFailure,
   summarizeErrorDetail,
 } from '@/lib/delivery-error-meta';
 import { pauseEnrollmentIfLeadReplied } from '@/lib/lead-replied';
@@ -111,7 +112,7 @@ export async function healStuckEnrollments(db: Db): Promise<HealStuckResult> {
           result.opted_out_from_twilio++;
           result.details.push(`${label}: opted out (Twilio 21610)`);
         }
-      } else {
+      } else if (isTwilioPermanentStoredFailure(priorFail.error_detail)) {
         await db
           .from('drip_enrollments')
           .update({ current_step: nextStep })
@@ -119,6 +120,10 @@ export async function healStuckEnrollments(db: Db): Promise<HealStuckResult> {
         result.healed_failed_steps++;
         result.details.push(
           `${label}: advanced past failed step ${nextStep} (${summarizeErrorDetail(priorFail.error_detail) || 'send failed'})`
+        );
+      } else {
+        result.details.push(
+          `${label}: step ${nextStep} waiting for SMS retry (${summarizeErrorDetail(priorFail.error_detail) || 'transient failure'})`
         );
       }
       continue;

@@ -16,6 +16,7 @@ import {
   deliveryErrorMeta,
   errorDetailIndicatesUnsubscribed,
   isTwilioInvalidPhoneError,
+  isTwilioPermanentStoredFailure,
   summarizeErrorDetail,
 } from './delivery-error-meta';
 import { markContactOptedOut } from './contact-opt-out';
@@ -340,12 +341,19 @@ export async function findDueMessagesWithDiagnostics(): Promise<{
       if (errorDetailIndicatesUnsubscribed(priorFail.error_detail)) {
         await markContactOptedOut(db, contact, 'TWILIO_21610');
         pushSkip('contact_opted_out', 'Prior send failed: unsubscribed recipient');
-      } else {
+      } else if (isTwilioPermanentStoredFailure(priorFail.error_detail)) {
         await advanceEnrollment(db, enrollment, step.step_number);
         pushSkip(
           'skipped_after_send_failure',
           summarizeErrorDetail(priorFail.error_detail) || 'Prior send failed for this step'
         );
+      } else {
+        // Transient failure (e.g. Twilio billing) — keep step due so cron retries.
+        pushSkip(
+          'retry_after_transient_failure',
+          summarizeErrorDetail(priorFail.error_detail) || 'Will retry SMS for this step'
+        );
+        dueMessages.push({ enrollment, contact, step, campaign });
       }
       continue;
     }

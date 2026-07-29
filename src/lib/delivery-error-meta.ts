@@ -103,6 +103,39 @@ export function errorDetailIndicatesUnsubscribed(detail: unknown): boolean {
   return msg.includes('21610') || msg.includes('unsubscribed');
 }
 
+/** Billing / account / rate-limit errors — safe to retry after Twilio is funded again. */
+export function isTwilioRetryableFailure(detail: unknown): boolean {
+  const code = errorDetailCode(detail);
+  if (code != null) {
+    // 20003 auth, 20429 too many requests, 21606 from invalid (sometimes transient)
+    if ([20003, 20429, 20500, 20503].includes(code)) return true;
+  }
+  if (!detail || typeof detail !== 'object') return false;
+  const msg = String((detail as Record<string, unknown>).message || '').toLowerCase();
+  return (
+    msg.includes('insufficient') ||
+    msg.includes('balance') ||
+    msg.includes('authenticate') ||
+    msg.includes('20003') ||
+    msg.includes('unable to create record') ||
+    msg.includes('account suspended') ||
+    msg.includes('payment')
+  );
+}
+
+export function isTwilioPermanentStoredFailure(detail: unknown): boolean {
+  if (errorDetailIndicatesUnsubscribed(detail)) return true;
+  const code = errorDetailCode(detail);
+  if (code === 21211 || code === 21408 || code === 21610) return true;
+  if (!detail || typeof detail !== 'object') return false;
+  const msg = String((detail as Record<string, unknown>).message || '').toLowerCase();
+  if (msg.includes('invalid phone') || msg.includes('21211')) return true;
+  if (msg.includes('region not enabled') || msg.includes('21408')) return true;
+  if (isTwilioRetryableFailure(detail)) return false;
+  // Unknown failures: allow retry (do not auto-skip the step).
+  return false;
+}
+
 function matchesTwilioMessage(error: unknown, needles: string[]): boolean {
   const msg = deliveryErrorMeta(error, 'twilio', 'send').message.toLowerCase();
   return needles.some((n) => msg.includes(n));

@@ -5,6 +5,7 @@ import {
   isTwilioGeoBlockedError,
   isTwilioInvalidPhoneError,
   isTwilioUnsubscribedError,
+  isTwilioRetryableFailure,
 } from '@/lib/delivery-error-meta';
 
 type Db = ReturnType<typeof getServiceClient>;
@@ -14,6 +15,7 @@ export type TwilioSmsFailureAction = 'opt_out' | 'skip' | 'retry';
 export function classifyTwilioSmsFailure(error: unknown): TwilioSmsFailureAction {
   if (isTwilioUnsubscribedError(error)) return 'opt_out';
   if (isTwilioInvalidPhoneError(error) || isTwilioGeoBlockedError(error)) return 'skip';
+  if (isTwilioRetryableFailure(deliveryErrorMeta(error, 'twilio', 'send'))) return 'retry';
   return 'retry';
 }
 
