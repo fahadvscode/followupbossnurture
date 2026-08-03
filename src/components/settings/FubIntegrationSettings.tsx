@@ -115,11 +115,11 @@ export function FubIntegrationSettings() {
             <div className="flex items-start gap-2">
               <StatusDot ok={Boolean(status?.autoSyncEnabled)} />
               <div>
-                <p className="font-medium text-foreground">Auto-sync every minute (active now)</p>
+                <p className="font-medium text-foreground">Backup auto-sync every 15 minutes</p>
                 <p className="text-muted text-xs mt-1">
-                  The cron job checks Follow Up Boss for leads updated in the last 3 hours and
-                  imports them automatically. This works with your existing{' '}
-                  <code className="text-[11px]">FUB_API_KEY</code> — no webhooks required.
+                  Cron polls Follow Up Boss for leads updated in the last 3 hours (backup if a
+                  webhook is missed). Primary sync is instant webhooks below. Works with{' '}
+                  <code className="text-[11px]">FUB_API_KEY</code> alone.
                 </p>
               </div>
             </div>
@@ -201,7 +201,8 @@ export function FubIntegrationSettings() {
                 <li>Redeploy, then click &quot;Register all FUB webhooks&quot; above</li>
               </ol>
               <p className="text-muted">
-                Auto-sync every minute still works without this — new leads appear within ~1 minute.
+                Backup auto-sync every 15 minutes still works without this — new leads appear within
+                that window.
               </p>
             </div>
           )}

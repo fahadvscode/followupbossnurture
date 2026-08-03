@@ -33,25 +33,54 @@ async function authorizeCronRequest(request: NextRequest): Promise<{
   return { ok: false, manual: false };
 }
 
+/** Parse positive interval minutes from env; fall back to default. */
+function cronIntervalMinutes(envName: string, fallback: number): number {
+  const raw = process.env[envName]?.trim();
+  if (!raw) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 1 ? n : fallback;
+}
+
+/**
+ * True when this UTC minute should run a throttled job.
+ * Cron still fires every minute; heavy work runs only on interval boundaries.
+ * Manual / dashboard runs always return true via the force flag.
+ */
+function shouldRunThrottledJob(intervalMinutes: number, force: boolean, now = new Date()): boolean {
+  if (force) return true;
+  if (intervalMinutes <= 1) return true;
+  return now.getUTCMinutes() % intervalMinutes === 0;
+}
+
 export async function GET(request: NextRequest) {
   const auth = await authorizeCronRequest(request);
   if (!auth.ok) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const fubInterval = cronIntervalMinutes('CRON_FUB_SYNC_INTERVAL_MINUTES', 15);
+  const healInterval = cronIntervalMinutes('CRON_HEAL_INTERVAL_MINUTES', 30);
+  const runFubSync = shouldRunThrottledJob(fubInterval, auth.manual);
+  const runHeal = shouldRunThrottledJob(healInterval, auth.manual);
+
   try {
-    // ── Auto-import recent FUB leads (works without webhooks) ─────────
+    // ── Auto-import recent FUB leads (backup; webhooks are primary) ───
+    // Default: every 15 minutes (CRON_FUB_SYNC_INTERVAL_MINUTES). Always on manual run.
     let fubSynced = 0;
     let fubEnrolled = 0;
-    try {
-      const fub = await syncRecentFubLeads();
-      fubSynced = fub.synced;
-      fubEnrolled = fub.enrolled;
-    } catch (fubErr) {
-      console.error('FUB recent sync error:', fubErr);
+    let fubSkipped = !runFubSync;
+    if (runFubSync) {
+      try {
+        const fub = await syncRecentFubLeads();
+        fubSynced = fub.synced;
+        fubEnrolled = fub.enrolled;
+      } catch (fubErr) {
+        console.error('FUB recent sync error:', fubErr);
+      }
     }
 
-    // ── Self-heal after FUB sync (sync can wrongly re-activate enrollments) ─
+    // ── Self-heal stuck enrollments ───────────────────────────────────
+    // Default: every 30 minutes (CRON_HEAL_INTERVAL_MINUTES). Always on manual run.
     let healSummary = {
       synced_opted_out_enrollments: 0,
       healed_failed_steps: 0,
@@ -61,13 +90,16 @@ export async function GET(request: NextRequest) {
       paused_on_reply: 0,
       details: [] as string[],
     };
-    try {
-      healSummary = await healStuckEnrollments(getServiceClient());
-      if (healSummary.details.length > 0) {
-        console.log('Enrollment heal:', healSummary);
+    let healSkipped = !runHeal;
+    if (runHeal) {
+      try {
+        healSummary = await healStuckEnrollments(getServiceClient());
+        if (healSummary.details.length > 0) {
+          console.log('Enrollment heal:', healSummary);
+        }
+      } catch (healErr) {
+        console.error('Enrollment heal error:', healErr);
       }
-    } catch (healErr) {
-      console.error('Enrollment heal error:', healErr);
     }
 
     // ── Standard drip campaigns ──────────────────────────────────────
@@ -165,8 +197,12 @@ export async function GET(request: NextRequest) {
 
     const payload: Record<string, unknown> = {
       enrollment_heal: healSummary,
+      enrollment_heal_skipped: healSkipped,
+      fub_sync_skipped: fubSkipped,
       fub_leads_synced: fubSynced,
       fub_enrollments: fubEnrolled,
+      fub_sync_interval_minutes: fubInterval,
+      heal_interval_minutes: healInterval,
       processed: dueMessages.length,
       sent,
       failed,
