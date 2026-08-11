@@ -29,6 +29,11 @@ yarn-error.log*
 # env files (keep templates unignored if you add them)
 .env
 .env*.local
+.env.local.pull
+.env.vercel.tmp
+
+# lead exports (PII)
+/exports
 
 # vercel
 .vercel

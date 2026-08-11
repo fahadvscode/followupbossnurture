@@ -220,23 +220,38 @@ export async function loadInboxThreads(
 
   const contactMap = new Map<string, InboxThread['contact']>();
   if (missingContactIds.length > 0) {
-    const { data: contacts } = await db
-      .from('drip_contacts')
-      .select('id,first_name,last_name,phone,email')
-      .in('id', missingContactIds);
-    for (const c of contacts || []) {
-      contactMap.set(c.id as string, c as InboxThread['contact']);
+    // PostgREST rejects oversized `in=(uuid,…)` URLs — batch in chunks.
+    for (let i = 0; i < missingContactIds.length; i += 200) {
+      const chunk = missingContactIds.slice(i, i + 200);
+      const { data: contacts, error } = await db
+        .from('drip_contacts')
+        .select('id,first_name,last_name,phone,email')
+        .in('id', chunk);
+      if (error) {
+        console.error('inbox contact load failed:', error.message);
+        continue;
+      }
+      for (const c of contacts || []) {
+        contactMap.set(c.id as string, c as InboxThread['contact']);
+      }
     }
   }
 
   const campaignMap = new Map<string, InboxThread['campaign']>();
   if (missingCampaignIds.length > 0) {
-    const { data: campaigns } = await db
-      .from('drip_campaigns')
-      .select('id,name,campaign_type')
-      .in('id', missingCampaignIds);
-    for (const c of campaigns || []) {
-      campaignMap.set(c.id as string, c as InboxThread['campaign']);
+    for (let i = 0; i < missingCampaignIds.length; i += 200) {
+      const chunk = missingCampaignIds.slice(i, i + 200);
+      const { data: campaigns, error } = await db
+        .from('drip_campaigns')
+        .select('id,name,campaign_type')
+        .in('id', chunk);
+      if (error) {
+        console.error('inbox campaign load failed:', error.message);
+        continue;
+      }
+      for (const c of campaigns || []) {
+        campaignMap.set(c.id as string, c as InboxThread['campaign']);
+      }
     }
   }
 
