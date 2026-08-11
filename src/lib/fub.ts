@@ -65,7 +65,9 @@ async function fubFetch(endpoint: string, options: RequestInit = {}) {
     throw new Error(`FUB API ${res.status}: ${text}`);
   }
 
-  return res.json();
+  const text = await res.text();
+  if (!text.trim()) return {};
+  return JSON.parse(text);
 }
 
 async function fubWebhookAdminFetch(endpoint: string, options: RequestInit = {}) {
@@ -128,6 +130,108 @@ export async function searchPeopleByEmail(email: string): Promise<FUBPerson[]> {
   });
   const data = (await fubFetch(`/people?${params}`)) as { people?: FUBPerson[] };
   return data.people || [];
+}
+
+/** Resolve FUB people by phone (GET /people?phone=…). */
+export async function searchPeopleByPhone(phone: string): Promise<FUBPerson[]> {
+  const digits = phone.replace(/\D/g, '');
+  const needle =
+    digits.length === 11 && digits.startsWith('1')
+      ? digits.slice(1)
+      : digits.length >= 10
+        ? digits.slice(-10)
+        : digits;
+  if (!needle) return [];
+  const params = new URLSearchParams({
+    phone: needle,
+    limit: '10',
+    fields: 'id,firstName,lastName,emails,phones,source,tags,stage,assignedTo',
+  });
+  const data = (await fubFetch(`/people?${params}`)) as { people?: FUBPerson[] };
+  return data.people || [];
+}
+
+export type FubCallRecord = {
+  id: number;
+  personId?: number;
+  phone?: string | null;
+  fromNumber?: string | null;
+  toNumber?: string | null;
+  isIncoming?: boolean;
+  outcome?: string | null;
+  created?: string;
+  sharedInboxId?: number | null;
+};
+
+export async function getCallById(id: number): Promise<FubCallRecord> {
+  const data = (await fubFetch(`/calls/${id}`)) as FubCallRecord & {
+    call?: FubCallRecord;
+    calls?: FubCallRecord[];
+  };
+  if (typeof data.id === 'number') return data;
+  if (data.call && typeof data.call.id === 'number') return data.call;
+  if (Array.isArray(data.calls) && data.calls[0] && typeof data.calls[0].id === 'number') {
+    return data.calls[0];
+  }
+  throw new Error(`FUB call ${id} not found`);
+}
+
+/** Recent calls to a specific number (newest first when API supports it). */
+export async function listCallsToNumber(
+  toNumber: string,
+  limit = 25
+): Promise<FubCallRecord[]> {
+  const digits = toNumber.replace(/\D/g, '');
+  const needle =
+    digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits.slice(-10);
+  if (!needle) return [];
+  const params = new URLSearchParams({
+    toNumber: needle,
+    limit: String(Math.min(100, Math.max(1, limit))),
+  });
+  const data = (await fubFetch(`/calls?${params}`)) as { calls?: FubCallRecord[] };
+  return data.calls || [];
+}
+
+/**
+ * Find or create a FUB person for a caller phone (POST /events General Inquiry).
+ * Returns person id, or undefined if FUB did not return one.
+ */
+export async function ensurePersonForPhone(args: {
+  phone: string;
+  source: string;
+  message: string;
+}): Promise<number | undefined> {
+  const existing = await searchPeopleByPhone(args.phone);
+  if (existing[0]?.id) return Number(existing[0].id);
+
+  const digits = args.phone.replace(/\D/g, '');
+  const value =
+    digits.length === 11 && digits.startsWith('1')
+      ? digits.slice(1)
+      : digits.length >= 10
+        ? digits.slice(-10)
+        : digits;
+  if (!value) return undefined;
+
+  const data = (await fubFetch('/events', {
+    method: 'POST',
+    body: JSON.stringify({
+      source: args.source,
+      type: 'General Inquiry',
+      message: args.message,
+      person: {
+        phones: [{ value, type: 'mobile' }],
+        tags: ['Call Auto SMS'],
+      },
+    }),
+  })) as { id?: number; person?: { id?: number } };
+
+  if (typeof data.id === 'number') return data.id;
+  if (typeof data.person?.id === 'number') return data.person.id;
+
+  const again = await searchPeopleByPhone(args.phone);
+  return again[0]?.id != null ? Number(again[0].id) : undefined;
 }
 
 /** Recently changed FUB people (for cron auto-sync when webhooks are not registered). */

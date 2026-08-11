@@ -131,7 +131,23 @@ export function FubIntegrationSettings() {
                   FUB has no webhooks screen in the app — they are registered via API. Use the button
                   below once{' '}
                   <code className="text-[11px]">FUB_SYSTEM_NAME</code> and{' '}
-                  <code className="text-[11px]">FUB_SYSTEM_KEY</code> are in Vercel.
+                  <code className="text-[11px]">FUB_SYSTEM_KEY</code> are in Vercel. Includes{' '}
+                  <code className="text-[11px]">callsCreated</code> for inbound call auto-SMS.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <StatusDot ok />
+              <div>
+                <p className="font-medium text-foreground">
+                  Call auto-SMS on (647) 492-6055
+                </p>
+                <p className="text-muted text-xs mt-1">
+                  Strictly inbound calls to <strong>(647) 492-6055</strong> only — no other FUB
+                  numbers. Triggers a Twilio SMS with the Ace of Clean Space booking link. Cron
+                  polls every minute as backup; register{' '}
+                  <code className="text-[11px]">callsCreated</code> for near-instant delivery.
+                  Text is sent from your Twilio number (FUB cannot send SMS via API).
                 </p>
               </div>
             </div>

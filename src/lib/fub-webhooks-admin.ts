@@ -12,6 +12,7 @@ export const FUB_DRIP_WEBHOOK_EVENTS = [
   'peopleUpdated',
   'peopleTagsCreated',
   'eventsCreated',
+  'callsCreated',
 ] as const;
 
 export type FubWebhookRow = {

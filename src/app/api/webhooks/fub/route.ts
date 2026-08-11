@@ -3,6 +3,7 @@ import { getServiceClient } from '@/lib/supabase';
 import { syncFubPersonAndEnroll, type FubSyncEnrollResult } from '@/lib/fub-sync-and-enroll';
 import type { AutoEnrollResult } from '@/lib/drip-engine';
 import { resolveFubWebhookPersonIds } from '@/lib/fub-webhook';
+import { processCallAutoSmsForWebhook } from '@/lib/fub-call-auto-sms';
 
 /** Zapier often adds tags after FUB fires peopleCreated; brief wait lets tags land. */
 const PEOPLE_CREATED_TAG_SETTLE_MS = 4500;
@@ -15,6 +16,20 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const db = getServiceClient();
   const webhookEvent = typeof body.event === 'string' ? body.event : undefined;
+
+  // Inbound call auto-SMS (resourceIds are call IDs, not people).
+  if (webhookEvent === 'callsCreated' || webhookEvent === 'callsUpdated') {
+    try {
+      const { results } = await processCallAutoSmsForWebhook(body);
+      return NextResponse.json({ ok: true, event: webhookEvent, callAutoSms: results });
+    } catch (error) {
+      console.error('FUB call auto-SMS webhook error:', error);
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Failed' },
+        { status: 500 }
+      );
+    }
+  }
 
   if (webhookEvent === 'peopleCreated') {
     await sleep(PEOPLE_CREATED_TAG_SETTLE_MS);

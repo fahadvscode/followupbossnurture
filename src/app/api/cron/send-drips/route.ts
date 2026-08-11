@@ -7,6 +7,7 @@ import { getServiceClient } from '@/lib/supabase';
 import { summarizeErrorDetail } from '@/lib/delivery-error-meta';
 import { syncRecentFubLeads } from '@/lib/fub-recent-sync';
 import { healStuckEnrollments } from '@/lib/enrollment-heal';
+import { processRecentCallAutoSms } from '@/lib/fub-call-auto-sms';
 
 async function authorizeCronRequest(request: NextRequest): Promise<{
   ok: boolean;
@@ -77,6 +78,21 @@ export async function GET(request: NextRequest) {
       } catch (fubErr) {
         console.error('FUB recent sync error:', fubErr);
       }
+    }
+
+    // ── Inbound FUB call → auto SMS (backup if callsCreated webhook missed) ──
+    // Runs every cron minute so texts go out quickly even without webhooks.
+    let callAutoSms = {
+      checked: 0,
+      sent: 0,
+      skipped: 0,
+      failed: 0,
+      already: 0,
+    };
+    try {
+      callAutoSms = await processRecentCallAutoSms(40);
+    } catch (callSmsErr) {
+      console.error('FUB call auto-SMS cron error:', callSmsErr);
     }
 
     // ── Self-heal stuck enrollments ───────────────────────────────────
@@ -203,6 +219,7 @@ export async function GET(request: NextRequest) {
       fub_enrollments: fubEnrolled,
       fub_sync_interval_minutes: fubInterval,
       heal_interval_minutes: healInterval,
+      call_auto_sms: callAutoSms,
       processed: dueMessages.length,
       sent,
       failed,
