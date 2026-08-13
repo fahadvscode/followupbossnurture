@@ -144,10 +144,9 @@ export function FubIntegrationSettings() {
                 </p>
                 <p className="text-muted text-xs mt-1">
                   Strictly inbound calls to <strong>(647) 492-6055</strong> only — no other FUB
-                  numbers. Triggers a Twilio SMS with the Ace of Clean Space booking link. Cron
-                  polls every minute as backup; register{' '}
+                  numbers. Replies by SMS from <strong>+1 (579) 503-5546</strong> with the Ace of
+                  Clean Space booking link. Cron polls every minute as backup; register{' '}
                   <code className="text-[11px]">callsCreated</code> for near-instant delivery.
-                  Text is sent from your Twilio number (FUB cannot send SMS via API).
                 </p>
               </div>
             </div>

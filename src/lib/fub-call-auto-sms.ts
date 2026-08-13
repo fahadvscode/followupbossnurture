@@ -15,6 +15,9 @@ import { isPlausibleSmsPhone, normalizePhone } from '@/lib/utils';
  */
 export const CALL_AUTO_SMS_TO_NUMBER = '6474926055';
 
+/** Twilio number that sends the cleaning booking text-back. */
+export const CALL_AUTO_SMS_FROM_NUMBER = '+15795035546';
+
 /** @deprecated use CALL_AUTO_SMS_TO_NUMBER */
 export const DEFAULT_CALL_AUTO_SMS_TO = CALL_AUTO_SMS_TO_NUMBER;
 
@@ -160,7 +163,9 @@ export async function processCallAutoSmsForCall(call: FubCallRecord): Promise<Ca
   }
 
   try {
-    const fromOverride = process.env.FUB_CALL_AUTO_SMS_FROM?.trim() || null;
+    // Always send from the dedicated cleaning text-back number.
+    const fromOverride =
+      process.env.FUB_CALL_AUTO_SMS_FROM?.trim() || CALL_AUTO_SMS_FROM_NUMBER;
     const result = await sendSMS(caller, body, fromOverride);
     const inserted = await recordResult({
       fub_call_id: callId,
