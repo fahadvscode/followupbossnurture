@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { cn, formatPhone } from '@/lib/utils';
 import { conversationPath } from '@/lib/conversation-url';
-import { ArrowDownLeft, Check, CheckCheck, Clock, RefreshCw } from 'lucide-react';
+import { ArrowDownLeft, Check, CheckCheck, Mail, Phone } from 'lucide-react';
 
 export type InboxThreadListItemData = {
   id: string;
@@ -19,7 +19,13 @@ export type InboxThreadListItemData = {
   last_inbound_at: string | null;
   last_outbound_at: string | null;
   escalation_reason: string | null;
-  contact: { id: string; first_name: string; last_name: string; phone: string; email?: string | null } | null;
+  contact: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    email?: string | null;
+  } | null;
   campaign: { id: string; name: string; campaign_type: string } | null;
   last_message: { body: string; direction: string; sent_at: string } | null;
 };
@@ -56,15 +62,16 @@ function previewText(body: string, max = 72): string {
 
 type Props = {
   thread: InboxThreadListItemData;
-  onRestart?: (convId: string, e: React.MouseEvent) => void;
-  restarting?: boolean;
+  selected?: boolean;
 };
 
-export function InboxThreadListItem({ thread, onRestart, restarting }: Props) {
+export function InboxThreadListItem({ thread, selected }: Props) {
   const name =
     `${thread.contact?.first_name || ''} ${thread.contact?.last_name || ''}`.trim() ||
     thread.contact?.phone ||
     'Unknown';
+  const phone = thread.contact?.phone ? formatPhone(thread.contact.phone) : '';
+  const email = thread.contact?.email?.trim() || '';
 
   const lastMsg = thread.last_message;
   const isInboundLast = lastMsg?.direction === 'inbound';
@@ -80,13 +87,17 @@ export function InboxThreadListItem({ thread, onRestart, restarting }: Props) {
   return (
     <Link
       href={href}
+      aria-current={selected ? 'page' : undefined}
       className={cn(
-        'flex items-center gap-3 rounded-xl border px-3 py-3 transition-colors hover:bg-card-hover',
-        thread.unread ? 'border-accent/40 bg-accent/[0.06]' : 'border-border bg-card'
+        'flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors hover:bg-card-hover active:bg-card-hover',
+        selected
+          ? 'border-accent bg-accent/10'
+          : thread.unread
+            ? 'border-accent/40 bg-accent/[0.06]'
+            : 'border-border bg-card'
       )}
     >
-      {/* Avatar + unread dot */}
-      <div className="relative shrink-0">
+      <div className="relative mt-0.5 shrink-0">
         <div
           className={cn(
             'flex h-11 w-11 items-center justify-center rounded-full text-sm font-semibold',
@@ -115,7 +126,6 @@ export function InboxThreadListItem({ thread, onRestart, restarting }: Props) {
         )}
       </div>
 
-      {/* Main content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <p
@@ -136,16 +146,31 @@ export function InboxThreadListItem({ thread, onRestart, restarting }: Props) {
           </span>
         </div>
 
-        <p className="truncate text-[11px] text-muted mt-0.5">
+        {(phone || email) && (
+          <div className="mt-0.5 space-y-0.5 text-[11px] text-muted">
+            {phone ? (
+              <p className="flex min-w-0 items-center gap-1 truncate">
+                <Phone size={10} className="shrink-0" />
+                <span className="truncate">{phone}</span>
+              </p>
+            ) : null}
+            {email ? (
+              <p className="flex min-w-0 items-center gap-1 truncate">
+                <Mail size={10} className="shrink-0" />
+                <span className="truncate">{email}</span>
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        <p className="mt-0.5 truncate text-[11px] text-muted/80">
           {thread.campaign?.name || 'Campaign'}
-          {thread.contact?.phone ? ` · ${thread.contact.phone}` : ''}
-          {thread.contact?.email ? ` · ${thread.contact.email}` : ''}
         </p>
 
         {lastMsg && (
-          <div className="mt-1 flex items-start gap-1 min-w-0">
+          <div className="mt-1 flex min-w-0 items-start gap-1">
             {!isInboundLast && (
-              <span className="shrink-0 text-[11px] text-muted flex items-center gap-0.5 mt-0.5">
+              <span className="mt-0.5 flex shrink-0 items-center gap-0.5 text-[11px] text-muted">
                 <CheckCheck size={12} className="text-accent/70" />
                 <span>You:</span>
               </span>
@@ -154,7 +179,7 @@ export function InboxThreadListItem({ thread, onRestart, restarting }: Props) {
               <ArrowDownLeft
                 size={12}
                 className={cn(
-                  'shrink-0 mt-0.5',
+                  'mt-0.5 shrink-0',
                   thread.unread ? 'text-accent' : 'text-success'
                 )}
                 strokeWidth={2.5}
@@ -176,43 +201,28 @@ export function InboxThreadListItem({ thread, onRestart, restarting }: Props) {
         )}
 
         {!lastMsg && thread.lead_has_replied && (
-          <p className="mt-1 text-[12px] text-success flex items-center gap-1">
+          <p className="mt-1 flex items-center gap-1 text-[12px] text-success">
             <ArrowDownLeft size={12} /> Lead replied
           </p>
         )}
 
         {thread.escalation_reason && (
-          <p className="text-[11px] text-red-600 mt-0.5 truncate">⚠ {thread.escalation_reason}</p>
+          <p className="mt-0.5 truncate text-[11px] text-red-600">⚠ {thread.escalation_reason}</p>
         )}
       </div>
 
-      {/* Trailing status */}
-      <div className="shrink-0 flex flex-col items-end gap-1.5 self-center">
+      <div className="flex shrink-0 flex-col items-end gap-1.5 self-center">
         {thread.unread ? (
           <span className="h-2.5 w-2.5 rounded-full bg-accent" aria-hidden />
         ) : thread.lead_has_replied && isInboundLast ? (
-          <span className="text-[10px] font-medium text-success whitespace-nowrap">Replied</span>
+          <span className="whitespace-nowrap text-[10px] font-medium text-success">Replied</span>
         ) : thread.lead_has_replied ? (
-          <span className="text-[10px] text-muted flex items-center gap-0.5">
+          <span className="flex items-center gap-0.5 text-[10px] text-muted">
             <Check size={10} /> Sent
           </span>
         ) : (
           <span className="text-[10px] text-muted/60">No reply</span>
         )}
-
-        {thread.conversation_id &&
-          onRestart &&
-          ['active', 'escalated', 'paused', 'human_takeover', 'goal_met'].includes(thread.status) && (
-            <button
-              type="button"
-              onClick={(e) => onRestart(thread.conversation_id!, e)}
-              disabled={restarting}
-              className="flex items-center gap-1 text-[10px] font-medium text-accent border border-accent/30 rounded-md px-2 py-0.5 hover:bg-accent/10 disabled:opacity-50"
-            >
-              <RefreshCw size={9} />
-              {restarting ? '…' : 'Fresh'}
-            </button>
-          )}
       </div>
     </Link>
   );

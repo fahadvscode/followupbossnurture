@@ -14,42 +14,46 @@ export async function GET(
   const contactId = request.nextUrl.searchParams.get('contact_id');
 
   if (contactId) {
-    const messages = await loadContactCampaignSmsMessages(db, contactId, id);
+    const [messages, contactRes, campaignRes, existingRes] = await Promise.all([
+      loadContactCampaignSmsMessages(db, contactId, id),
+      db
+        .from('drip_contacts')
+        .select('id,first_name,last_name,phone,email')
+        .eq('id', contactId)
+        .maybeSingle(),
+      db.from('drip_campaigns').select('id,name,campaign_type').eq('id', id).maybeSingle(),
+      db
+        .from('drip_ai_conversations')
+        .select('*')
+        .eq('campaign_id', id)
+        .eq('contact_id', contactId)
+        .maybeSingle(),
+    ]);
 
-    let conv = null;
-    const { data: existing } = await db
-      .from('drip_ai_conversations')
-      .select('*')
-      .eq('campaign_id', id)
-      .eq('contact_id', contactId)
-      .maybeSingle();
+    let conv = existingRes.data;
+    const campaign = campaignRes.data;
 
-    if (existing) {
-      conv = existing;
-    } else {
-      const { data: campaign } = await db
-        .from('drip_campaigns')
-        .select('campaign_type')
-        .eq('id', id)
+    if (!conv && campaign?.campaign_type === 'ai_nurture') {
+      const { data: enrollment } = await db
+        .from('drip_enrollments')
+        .select('id')
+        .eq('contact_id', contactId)
+        .eq('campaign_id', id)
+        .order('enrolled_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
-      if (campaign?.campaign_type === 'ai_nurture') {
-        const { data: enrollment } = await db
-          .from('drip_enrollments')
-          .select('id')
-          .eq('contact_id', contactId)
-          .eq('campaign_id', id)
-          .order('enrolled_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (enrollment) {
-          conv = await ensureAiConversation(enrollment.id, contactId, id);
-        }
+      if (enrollment) {
+        conv = await ensureAiConversation(enrollment.id, contactId, id);
       }
     }
 
-    return Response.json({ messages: messages || [], conversation: conv });
+    return Response.json({
+      messages: messages || [],
+      conversation: conv,
+      contact: contactRes.data || null,
+      campaign: campaign || null,
+    });
   }
 
   let query = db

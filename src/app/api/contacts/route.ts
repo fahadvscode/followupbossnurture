@@ -7,6 +7,19 @@ export async function GET(request: NextRequest) {
 
   let query = db.from('drip_contacts').select('*', { count: 'exact' });
 
+  const id = searchParams.get('id');
+  if (id) {
+    const { data: contact, error } = await db
+      .from('drip_contacts')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ contact });
+  }
+
   const search = searchParams.get('search');
   if (search) {
     query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);

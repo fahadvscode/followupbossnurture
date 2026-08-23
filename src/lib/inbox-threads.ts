@@ -277,9 +277,10 @@ export async function loadInboxThreads(
 
   let allThreads = Array.from(threadMap.values())
     .filter((t) => t.message_count > 0 && t.last_message)
-    .sort(
-    (a, b) => new Date(lastActivity(b)).getTime() - new Date(lastActivity(a)).getTime()
-  );
+    .sort((a, b) => {
+      if (a.unread !== b.unread) return a.unread ? -1 : 1;
+      return new Date(lastActivity(b)).getTime() - new Date(lastActivity(a)).getTime();
+    });
 
   if (focusContactId) {
     allThreads = allThreads.filter((t) => t.contact_id === focusContactId);

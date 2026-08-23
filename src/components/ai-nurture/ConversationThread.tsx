@@ -7,9 +7,10 @@ import type { DripMessage } from '@/types';
 interface Props {
   messages: DripMessage[];
   contactName: string;
+  newMessageIds?: Set<string>;
 }
 
-export function ConversationThread({ messages, contactName }: Props) {
+export function ConversationThread({ messages, contactName, newMessageIds }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export function ConversationThread({ messages, contactName }: Props) {
     <div className="space-y-3 py-4">
       {messages.map((msg) => {
         const isOutbound = msg.direction === 'outbound';
+        const isNew = Boolean(newMessageIds?.has(msg.id));
         return (
           <div
             key={msg.id}
@@ -34,7 +36,8 @@ export function ConversationThread({ messages, contactName }: Props) {
                 'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm sm:max-w-[80%]',
                 isOutbound
                   ? 'rounded-br-md bg-accent text-white'
-                  : 'rounded-bl-md border border-border bg-card text-foreground'
+                  : 'rounded-bl-md border border-border bg-card text-foreground',
+                isNew && !isOutbound && 'border-accent bg-accent/10 ring-2 ring-accent/40'
               )}
             >
               <p className="whitespace-pre-wrap break-words">{msg.body}</p>

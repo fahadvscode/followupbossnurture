@@ -10,9 +10,13 @@ import {
   AlertCircle,
   CheckCircle,
   RefreshCw,
+  Phone,
+  Mail,
+  ExternalLink,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatPhone, normalizePhone } from '@/lib/utils';
 import { ConversationThread } from '@/components/ai-nurture/ConversationThread';
+import { INBOX_REPLY_TEMPLATES } from '@/lib/inbox-reply-templates';
 import type { AiConversation, CampaignType, DripMessage } from '@/types';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -22,6 +26,14 @@ const STATUS_COLORS: Record<string, string> = {
   goal_met: 'bg-blue-500/15 text-blue-600',
   human_takeover: 'bg-blue-500/15 text-blue-600',
   replied: 'bg-amber-500/15 text-amber-700',
+};
+
+type ContactInfo = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  email: string | null;
 };
 
 type Props = {
@@ -34,6 +46,16 @@ type Props = {
   embedded?: boolean;
 };
 
+function displayName(contact: ContactInfo | null, fallback: string): string {
+  if (!contact) return fallback || 'Conversation';
+  return (
+    `${contact.first_name || ''} ${contact.last_name || ''}`.trim() ||
+    contact.phone ||
+    fallback ||
+    'Lead'
+  );
+}
+
 export function LeadConversationPanel({
   campaignId,
   contactId,
@@ -44,54 +66,101 @@ export function LeadConversationPanel({
 }: Props) {
   const [messages, setMessages] = useState<DripMessage[]>([]);
   const [conversation, setConversation] = useState<AiConversation | null>(null);
+  const [contact, setContact] = useState<ContactInfo | null>(null);
+  const [campaignName, setCampaignName] = useState('');
   const [contactName, setContactName] = useState(initialName);
   const [loading, setLoading] = useState(true);
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [newMessageIds, setNewMessageIds] = useState<Set<string>>(new Set());
+  const [justReceived, setJustReceived] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const firstLoadRef = useRef(true);
 
   const isAi = campaignType === 'ai_nurture';
 
-  const load = useCallback(async () => {
-    const res = await fetch(
-      `/api/ai-campaigns/${campaignId}/conversations?contact_id=${contactId}`
-    );
-    const data = await res.json();
-    setMessages(data.messages || []);
-    setConversation(data.conversation || null);
-    setLoading(false);
+  const markRead = useCallback(() => {
+    void fetch('/api/inbox/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact_id: contactId, campaign_id: campaignId }),
+    });
   }, [campaignId, contactId]);
+
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setLoading(true);
+      const res = await fetch(
+        `/api/ai-campaigns/${campaignId}/conversations?contact_id=${contactId}`
+      );
+      const data = await res.json();
+      const incoming: DripMessage[] = data.messages || [];
+
+      if (firstLoadRef.current) {
+        seenIdsRef.current = new Set(incoming.map((m) => m.id));
+        firstLoadRef.current = false;
+      } else {
+        const freshInbound = incoming.filter(
+          (m) => m.direction === 'inbound' && !seenIdsRef.current.has(m.id)
+        );
+        if (freshInbound.length > 0) {
+          setNewMessageIds((prev) => {
+            const next = new Set(prev);
+            for (const m of freshInbound) next.add(m.id);
+            return next;
+          });
+          setJustReceived(true);
+          markRead();
+        }
+        for (const m of incoming) seenIdsRef.current.add(m.id);
+      }
+
+      setMessages(incoming);
+      setConversation(data.conversation || null);
+      if (data.contact) {
+        setContact(data.contact);
+        setContactName(displayName(data.contact, initialName));
+      }
+      if (data.campaign?.name) setCampaignName(data.campaign.name);
+      setLoading(false);
+    },
+    [campaignId, contactId, initialName, markRead]
+  );
 
   useEffect(() => {
     if (initialName) setContactName(initialName);
   }, [initialName]);
 
   useEffect(() => {
-    if (!initialName) {
-      fetch(`/api/contacts?id=${contactId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          const c = data.contact;
-          if (c) {
-            setContactName(
-              `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.phone || 'Lead'
-            );
-          }
-        })
-        .catch(() => {});
-    }
-  }, [contactId, initialName]);
-
-  useEffect(() => {
+    firstLoadRef.current = true;
+    seenIdsRef.current = new Set();
+    setNewMessageIds(new Set());
+    setJustReceived(false);
     setLoading(true);
     void load();
-    void fetch('/api/inbox/read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contact_id: contactId, campaign_id: campaignId }),
-    });
-  }, [load, contactId, campaignId]);
+    markRead();
+  }, [load, markRead]);
+
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === 'hidden') return;
+      void load({ silent: true });
+    };
+    const interval = window.setInterval(tick, 8000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    if (!justReceived) return;
+    const t = window.setTimeout(() => setJustReceived(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [justReceived]);
 
   const convAction = useCallback(
     async (action: string, message?: string) => {
@@ -178,49 +247,93 @@ export function LeadConversationPanel({
     ? conversation?.status.replace(/_/g, ' ') || 'active'
     : 'SMS thread';
 
+  const phone = contact?.phone?.trim() || '';
+  const email = contact?.email?.trim() || '';
+  const name = contactName || 'Conversation';
+
   return (
     <div
       className={cn(
         'flex min-h-0 flex-col',
-        embedded
-          ? 'h-[min(70dvh,560px)]'
-          : 'h-[calc(100dvh-4.5rem)] sm:h-[calc(100dvh-5.5rem)] lg:h-[calc(100dvh-6.5rem)] max-w-2xl mx-auto'
+        embedded ? 'h-[min(70dvh,560px)]' : 'h-full w-full'
       )}
     >
       {!embedded && (
-        <div className="shrink-0 border-b border-border bg-background px-1 pb-3 pt-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-3">
+        <div className="shrink-0 border-b border-border bg-background px-3 py-2.5 sm:px-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 items-start gap-3">
               {backHref ? (
                 <Link
                   href={backHref}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:bg-card-hover hover:text-foreground"
+                  className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:bg-card-hover hover:text-foreground lg:hidden"
                 >
                   <ArrowLeft size={16} />
                 </Link>
               ) : null}
               <div className="min-w-0">
-                <h2 className="truncate text-lg font-bold text-foreground">
-                  {contactName || 'Conversation'}
-                </h2>
-                {isAi && conversation ? (
-                  <p className="text-xs text-muted">
-                    {conversation.exchange_count} exchanges · {conversation.follow_up_count} follow-ups
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted">Standard drip — reply manually via SMS</p>
-                )}
+                <div className="flex min-w-0 items-center gap-2">
+                  <h2 className="truncate text-base font-bold text-foreground sm:text-lg">{name}</h2>
+                  <Link
+                    href={`/contacts/${contactId}`}
+                    className="shrink-0 text-muted hover:text-accent"
+                    title="Open contact record"
+                  >
+                    <ExternalLink size={14} />
+                  </Link>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-muted">
+                  {phone ? (
+                    <a
+                      href={`tel:${normalizePhone(phone)}`}
+                      className="flex min-w-0 items-center gap-1.5 hover:text-foreground"
+                    >
+                      <Phone size={12} className="shrink-0" />
+                      <span className="truncate">{formatPhone(phone)}</span>
+                    </a>
+                  ) : (
+                    <p className="flex items-center gap-1.5 text-muted/70">
+                      <Phone size={12} className="shrink-0" />
+                      No phone on file
+                    </p>
+                  )}
+                  {email ? (
+                    <a
+                      href={`mailto:${email}`}
+                      className="flex min-w-0 items-center gap-1.5 hover:text-foreground"
+                    >
+                      <Mail size={12} className="shrink-0" />
+                      <span className="truncate">{email}</span>
+                    </a>
+                  ) : (
+                    <p className="flex items-center gap-1.5 text-muted/70">
+                      <Mail size={12} className="shrink-0" />
+                      No email on file
+                    </p>
+                  )}
+                </div>
+                <p className="mt-1 truncate text-[11px] text-muted/80">
+                  {campaignName || (isAi ? 'AI nurture' : 'Standard drip')}
+                  {isAi && conversation
+                    ? ` · ${conversation.exchange_count} exchanges · ${conversation.follow_up_count} follow-ups`
+                    : ''}
+                </p>
               </div>
             </div>
             <span
               className={cn(
-                'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                'mt-0.5 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
                 STATUS_COLORS[conversation?.status || (isAi ? 'active' : 'replied')] || ''
               )}
             >
               {statusLabel}
             </span>
           </div>
+        </div>
+      )}
+
+      {justReceived && (
+        <div className="shrink-0 bg-accent px-4 py-2 text-center text-xs font-semibold text-white">
+          New message from {name}
         </div>
       )}
 
@@ -297,7 +410,11 @@ export function LeadConversationPanel({
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
               </div>
             ) : (
-              <ConversationThread messages={messages} contactName={contactName} />
+              <ConversationThread
+                messages={messages}
+                contactName={name}
+                newMessageIds={newMessageIds}
+              />
             )}
           </div>
 
@@ -343,6 +460,23 @@ export function LeadConversationPanel({
           </div>
         )}
 
+        <div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {INBOX_REPLY_TEMPLATES.map((tpl) => (
+            <button
+              key={tpl.id}
+              type="button"
+              onClick={() => {
+                const first = contact?.first_name?.trim() || '';
+                setReply(tpl.body(first));
+                requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+              className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:border-accent hover:bg-accent/10 active:bg-accent/15"
+            >
+              {tpl.label}
+            </button>
+          ))}
+        </div>
+
         <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
@@ -363,9 +497,7 @@ export function LeadConversationPanel({
             <Send size={18} />
           </button>
         </div>
-        <p className="mt-1.5 hidden text-[10px] text-muted sm:block">
-          Cmd+Enter to send
-        </p>
+        <p className="mt-1.5 hidden text-[10px] text-muted sm:block">Cmd+Enter to send</p>
       </div>
     </div>
   );
