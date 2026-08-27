@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
 import { sendAiNurtureFirstTouchAfterEnroll, processDueStepsForEnrollment } from '@/lib/drip-engine';
+import { ensureLeadIdForContact } from '@/lib/fub-lead-id';
 
 export async function POST(request: NextRequest) {
   const db = getServiceClient();
@@ -73,6 +74,12 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === 'enroll') {
+    try {
+      await ensureLeadIdForContact(contact_id);
+    } catch (err) {
+      console.error(`Lead ID tag failed for contact ${contact_id}:`, err);
+    }
+
     const { data: existing } = await db
       .from('drip_enrollments')
       .select('id')

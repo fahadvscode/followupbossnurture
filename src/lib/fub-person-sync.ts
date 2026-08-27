@@ -4,7 +4,8 @@ import {
   listAllEventsForPerson,
   listAllNotesForPerson,
 } from '@/lib/fub';
-import { buildDripContactFieldsFromFub } from '@/lib/fub-contact-from-person';
+import { buildDripContactFieldsFromFub, normalizeFubTags } from '@/lib/fub-contact-from-person';
+import { ensureFubLeadIdTag } from '@/lib/fub-lead-id';
 
 type Db = ReturnType<typeof getServiceClient>;
 
@@ -158,6 +159,15 @@ export async function syncFubPersonDeep(
   const person = await getPersonByIdFull(fubPersonId);
   if (!person || typeof person.id !== 'number') {
     throw new Error('Invalid FUB person response');
+  }
+
+  try {
+    const { tag, added } = await ensureFubLeadIdTag(person);
+    if (added) {
+      person.tags = [...normalizeFubTags(person.tags), tag];
+    }
+  } catch (err) {
+    console.error(`Lead ID tag failed for person ${fubPersonId}:`, err);
   }
 
   const payload = buildDripContactFieldsFromFub(person, { fullSnapshot: true });

@@ -132,6 +132,23 @@ export async function searchPeopleByEmail(email: string): Promise<FUBPerson[]> {
   return data.people || [];
 }
 
+/** People who have a given tag (GET /people?tags=…). */
+export async function searchPeopleByTag(
+  tag: string
+): Promise<Array<{ id: number; tags?: string[] }>> {
+  const trimmed = tag.trim();
+  if (!trimmed) return [];
+  const params = new URLSearchParams({
+    tags: trimmed,
+    limit: '20',
+    fields: 'id,tags',
+  });
+  const data = (await fubFetch(`/people?${params}`)) as {
+    people?: Array<{ id: number; tags?: string[] }>;
+  };
+  return data.people || [];
+}
+
 /** Resolve FUB people by phone (GET /people?phone=…). */
 export async function searchPeopleByPhone(phone: string): Promise<FUBPerson[]> {
   const digits = phone.replace(/\D/g, '');

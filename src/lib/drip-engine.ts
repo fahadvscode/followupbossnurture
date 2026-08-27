@@ -23,6 +23,7 @@ import { markContactOptedOut } from './contact-opt-out';
 import { handleTwilioSmsFailure } from './twilio-sms-failure';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendAiMessage } from './ai-engine';
+import { ensureLeadIdForContact } from './fub-lead-id';
 import {
   contactHasInboundSmsSince,
   pauseEnrollmentIfLeadReplied,
@@ -1047,6 +1048,12 @@ export async function autoEnrollContact(
 ): Promise<AutoEnrollResult> {
   const db = getServiceClient();
   const result: AutoEnrollResult = { enrolled: [], skipped: [], unmatched: [] };
+
+  try {
+    await ensureLeadIdForContact(contactId);
+  } catch (err) {
+    console.error(`Lead ID tag failed for contact ${contactId}:`, err);
+  }
 
   const { data: campaigns } = await db
     .from('drip_campaigns')
