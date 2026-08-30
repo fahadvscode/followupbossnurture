@@ -9,6 +9,9 @@ import { syncRecentFubLeads } from '@/lib/fub-recent-sync';
 import { healStuckEnrollments } from '@/lib/enrollment-heal';
 import { processRecentCallAutoSms } from '@/lib/fub-call-auto-sms';
 
+/** Cap runaway ticks so a slow FUB pass cannot bill for minutes. */
+export const maxDuration = 60;
+
 async function authorizeCronRequest(request: NextRequest): Promise<{
   ok: boolean;
   manual: boolean;
@@ -44,7 +47,7 @@ function cronIntervalMinutes(envName: string, fallback: number): number {
 
 /**
  * True when this UTC minute should run a throttled job.
- * Cron still fires every minute; heavy work runs only on interval boundaries.
+ * Cron fires every 5 minutes; heavier FUB backup / heal jobs run on longer intervals.
  * Manual / dashboard runs always return true via the force flag.
  */
 function shouldRunThrottledJob(intervalMinutes: number, force: boolean, now = new Date()): boolean {
@@ -59,14 +62,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const fubInterval = cronIntervalMinutes('CRON_FUB_SYNC_INTERVAL_MINUTES', 15);
-  const healInterval = cronIntervalMinutes('CRON_HEAL_INTERVAL_MINUTES', 30);
+  const fubInterval = cronIntervalMinutes('CRON_FUB_SYNC_INTERVAL_MINUTES', 60);
+  const healInterval = cronIntervalMinutes('CRON_HEAL_INTERVAL_MINUTES', 60);
+  const callSmsInterval = cronIntervalMinutes('CRON_CALL_SMS_INTERVAL_MINUTES', 5);
   const runFubSync = shouldRunThrottledJob(fubInterval, auth.manual);
   const runHeal = shouldRunThrottledJob(healInterval, auth.manual);
+  const runCallSms = shouldRunThrottledJob(callSmsInterval, auth.manual);
 
   try {
     // ── Auto-import recent FUB leads (backup; webhooks are primary) ───
-    // Default: every 15 minutes (CRON_FUB_SYNC_INTERVAL_MINUTES). Always on manual run.
+    // Default: every 60 minutes (CRON_FUB_SYNC_INTERVAL_MINUTES). Always on manual run.
     let fubSynced = 0;
     let fubEnrolled = 0;
     let fubSkipped = !runFubSync;
@@ -81,7 +86,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Inbound FUB call → auto SMS (backup if callsCreated webhook missed) ──
-    // Runs every cron minute so texts go out quickly even without webhooks.
+    // Default: every 5 minutes. Webhook is primary for near-instant send.
     let callAutoSms = {
       checked: 0,
       sent: 0,
@@ -89,14 +94,17 @@ export async function GET(request: NextRequest) {
       failed: 0,
       already: 0,
     };
-    try {
-      callAutoSms = await processRecentCallAutoSms(40);
-    } catch (callSmsErr) {
-      console.error('FUB call auto-SMS cron error:', callSmsErr);
+    let callSmsSkipped = !runCallSms;
+    if (runCallSms) {
+      try {
+        callAutoSms = await processRecentCallAutoSms(40);
+      } catch (callSmsErr) {
+        console.error('FUB call auto-SMS cron error:', callSmsErr);
+      }
     }
 
     // ── Self-heal stuck enrollments ───────────────────────────────────
-    // Default: every 30 minutes (CRON_HEAL_INTERVAL_MINUTES). Always on manual run.
+    // Default: every 60 minutes (CRON_HEAL_INTERVAL_MINUTES). Always on manual run.
     let healSummary = {
       synced_opted_out_enrollments: 0,
       healed_failed_steps: 0,
@@ -219,6 +227,8 @@ export async function GET(request: NextRequest) {
       fub_enrollments: fubEnrolled,
       fub_sync_interval_minutes: fubInterval,
       heal_interval_minutes: healInterval,
+      call_sms_interval_minutes: callSmsInterval,
+      call_auto_sms_skipped: callSmsSkipped,
       call_auto_sms: callAutoSms,
       processed: dueMessages.length,
       sent,

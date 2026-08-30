@@ -147,14 +147,36 @@ function timestamp(v: unknown): number {
   return Number.isFinite(t) ? t : 0;
 }
 
+export type SyncFubPersonOptions = {
+  /**
+   * Pull every FUB note/event and rewrite drip_fub_notes / drip_fub_events.
+   * Default true (manual sync). Skip on peopleUpdated / peopleTagsCreated —
+   * those events used to paginate the full timeline on every FUB activity.
+   */
+  syncTimeline?: boolean;
+};
+
+/** Full notes/events rewrite is only needed when a new lead or inquiry may have landed. */
+export function shouldSyncFubTimeline(webhookEvent?: string): boolean {
+  if (!webhookEvent) return true;
+  return (
+    webhookEvent === 'peopleCreated' ||
+    webhookEvent === 'eventsCreated' ||
+    webhookEvent === 'notesCreated' ||
+    webhookEvent === 'notesUpdated'
+  );
+}
+
 /**
- * Fetches full person (allFields), notes, and events from FUB and upserts drip_contacts + child tables.
- * Also flags whether a **new inquiry** arrived since the last sync so callers can restart drips
- * even when tags didn't change (e.g. Zapier re-inquiry on an existing lead).
+ * Fetches full person (allFields) and upserts drip_contacts.
+ * Notes/events are optional — pulling them on every peopleUpdated webhook is the
+ * largest Vercel GB-time cost (paginated FUB reads + delete/reinsert).
+ * Also flags whether a **new inquiry** arrived since the last timeline sync.
  */
 export async function syncFubPersonDeep(
   db: Db,
-  fubPersonId: number
+  fubPersonId: number,
+  options: SyncFubPersonOptions = {}
 ): Promise<{ contactId: string; opted_out: boolean; hasNewInquiry: boolean }> {
   const person = await getPersonByIdFull(fubPersonId);
   if (!person || typeof person.id !== 'number') {
@@ -178,6 +200,10 @@ export async function syncFubPersonDeep(
     .eq('fub_id', fubPersonId)
     .maybeSingle();
 
+  // First time we see a person, always pull timeline once. After that, only on
+  // create / inquiry events — not on every peopleUpdated (SMS, tag, lastActivity).
+  const pullTimeline = (options.syncTimeline ?? true) || !existing?.id;
+
   let contactId: string;
   let priorLatestEventMs = 0;
   let priorLatestNoteMs = 0;
@@ -186,34 +212,36 @@ export async function syncFubPersonDeep(
   if (existing?.id) {
     contactId = existing.id;
 
-    const [{ data: priorEvents }, { data: priorNotes }] = await Promise.all([
-      db
-        .from('drip_fub_events')
-        .select('occurred_at, event_type, event_source, message, description')
-        .eq('contact_id', contactId),
-      db
-        .from('drip_fub_notes')
-        .select('fub_created_at, subject, body, note_type')
-        .eq('contact_id', contactId),
-    ]);
+    if (pullTimeline) {
+      const [{ data: priorEvents }, { data: priorNotes }] = await Promise.all([
+        db
+          .from('drip_fub_events')
+          .select('occurred_at, event_type, event_source, message, description')
+          .eq('contact_id', contactId),
+        db
+          .from('drip_fub_notes')
+          .select('fub_created_at, subject, body, note_type')
+          .eq('contact_id', contactId),
+      ]);
 
-    for (const row of priorEvents || []) {
-      priorLatestEventMs = Math.max(priorLatestEventMs, timestamp(row.occurred_at));
-      if (
-        isInquiryEvent({
-          type: row.event_type,
-          source: row.event_source,
-          message: row.message,
-          description: row.description,
-        })
-      ) {
-        hadPriorInquiry = true;
+      for (const row of priorEvents || []) {
+        priorLatestEventMs = Math.max(priorLatestEventMs, timestamp(row.occurred_at));
+        if (
+          isInquiryEvent({
+            type: row.event_type,
+            source: row.event_source,
+            message: row.message,
+            description: row.description,
+          })
+        ) {
+          hadPriorInquiry = true;
+        }
       }
-    }
-    for (const row of priorNotes || []) {
-      priorLatestNoteMs = Math.max(priorLatestNoteMs, timestamp(row.fub_created_at));
-      if (isInquiryNote({ subject: row.subject, body: row.body, type: row.note_type })) {
-        hadPriorInquiry = true;
+      for (const row of priorNotes || []) {
+        priorLatestNoteMs = Math.max(priorLatestNoteMs, timestamp(row.fub_created_at));
+        if (isInquiryNote({ subject: row.subject, body: row.body, type: row.note_type })) {
+          hadPriorInquiry = true;
+        }
       }
     }
 
@@ -231,6 +259,15 @@ export async function syncFubPersonDeep(
     if (error) throw error;
     if (!inserted?.id) throw new Error('Insert contact failed');
     contactId = inserted.id;
+  }
+
+  if (!pullTimeline) {
+    const { data: row } = await db
+      .from('drip_contacts')
+      .select('opted_out')
+      .eq('id', contactId)
+      .single();
+    return { contactId, opted_out: Boolean(row?.opted_out), hasNewInquiry: false };
   }
 
   const [notes, events] = await Promise.all([

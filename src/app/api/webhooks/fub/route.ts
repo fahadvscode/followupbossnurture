@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase';
-import { syncFubPersonAndEnroll, type FubSyncEnrollResult } from '@/lib/fub-sync-and-enroll';
+import { syncFubPersonAndEnroll, wasFubPersonSyncedRecently, type FubSyncEnrollResult } from '@/lib/fub-sync-and-enroll';
 import type { AutoEnrollResult } from '@/lib/drip-engine';
 import { resolveFubWebhookPersonIds } from '@/lib/fub-webhook';
 import { processCallAutoSmsForWebhook } from '@/lib/fub-call-auto-sms';
@@ -49,6 +49,9 @@ export async function POST(request: NextRequest) {
 
     for (const personId of personIds) {
       try {
+        if (webhookEvent === 'peopleUpdated' && (await wasFubPersonSyncedRecently(db, personId))) {
+          continue;
+        }
         const { contactId, enroll, tags }: FubSyncEnrollResult = await syncFubPersonAndEnroll(
           db,
           personId,
@@ -64,13 +67,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await db.from('drip_sync_log').insert({
-      sync_type: 'webhook',
-      status: errors.length === personIds.length ? 'failed' : 'completed',
-      contacts_synced: contactIds.length,
-      started_at: new Date().toISOString(),
-      completed_at: new Date().toISOString(),
-    });
+    const skippedRecent = personIds.length - contactIds.length - errors.length;
+
+    if (contactIds.length === 0 && errors.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        event: webhookEvent,
+        skipped: skippedRecent,
+        reason: 'recently_synced',
+      });
+    }
+
+    if (contactIds.length > 0) {
+      await db.from('drip_sync_log').insert({
+        sync_type: 'webhook',
+        status: errors.length === personIds.length ? 'failed' : 'completed',
+        contacts_synced: contactIds.length,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      });
+    }
 
     if (contactIds.length === 0) {
       return NextResponse.json(
@@ -85,6 +101,7 @@ export async function POST(request: NextRequest) {
       contactIds,
       tags: syncedTags,
       enrollments,
+      ...(skippedRecent > 0 ? { skipped: skippedRecent } : {}),
       ...(errors.length ? { partialErrors: errors } : {}),
     });
   } catch (error) {

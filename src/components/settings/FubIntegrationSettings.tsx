@@ -115,7 +115,7 @@ export function FubIntegrationSettings() {
             <div className="flex items-start gap-2">
               <StatusDot ok={Boolean(status?.autoSyncEnabled)} />
               <div>
-                <p className="font-medium text-foreground">Backup auto-sync every 15 minutes</p>
+                <p className="font-medium text-foreground">Backup auto-sync every 60 minutes</p>
                 <p className="text-muted text-xs mt-1">
                   Cron polls Follow Up Boss for leads updated in the last 3 hours (backup if a
                   webhook is missed). Primary sync is instant webhooks below. Works with{' '}
@@ -145,7 +145,7 @@ export function FubIntegrationSettings() {
                 <p className="text-muted text-xs mt-1">
                   Strictly inbound calls to <strong>(647) 492-6055</strong> only — no other FUB
                   numbers. Replies by SMS from <strong>+1 (579) 503-5546</strong> with the Ace of
-                  Clean Space booking link. Cron polls every minute as backup; register{' '}
+                  Clean Space booking link. Cron polls every 5 minutes as backup; register{' '}
                   <code className="text-[11px]">callsCreated</code> for near-instant delivery.
                 </p>
               </div>
@@ -216,7 +216,7 @@ export function FubIntegrationSettings() {
                 <li>Redeploy, then click &quot;Register all FUB webhooks&quot; above</li>
               </ol>
               <p className="text-muted">
-                Backup auto-sync every 15 minutes still works without this — new leads appear within
+                Backup auto-sync every 60 minutes still works without this — new leads appear within
                 that window.
               </p>
             </div>

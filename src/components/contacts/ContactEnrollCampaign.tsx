@@ -68,7 +68,7 @@ export function ContactEnrollCampaign({
       }
       setMessage({
         type: 'ok',
-        text: 'Enrolled. Click “Run due drips now” below to send immediately, or wait for the cron (every minute on Vercel Pro).',
+        text: 'Enrolled. Click “Run due drips now” below to send immediately, or wait for the cron (every 5 minutes on Vercel Pro).',
       });
       setCampaignId('');
       router.refresh();
