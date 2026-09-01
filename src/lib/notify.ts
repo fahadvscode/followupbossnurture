@@ -11,17 +11,21 @@ function extractEmailAddress(raw: string | undefined): string {
   return (match ? match[1] : v).trim();
 }
 
-/** Who should receive reply alerts: REPLY_NOTIFY_EMAIL (comma-separated) → EMAIL_FROM → SMTP_USER. */
+const OFFICE_NOTIFY_EMAIL = 'sales@fahadsold.com';
+
+/** Who should receive reply alerts: office user, plus REPLY_NOTIFY_EMAIL if set. */
 function resolveNotifyRecipients(): string {
+  const emails: string[] = [OFFICE_NOTIFY_EMAIL];
   const explicit = process.env.REPLY_NOTIFY_EMAIL?.trim();
   if (explicit) {
-    return explicit
-      .split(',')
-      .map((e) => extractEmailAddress(e))
-      .filter(Boolean)
-      .join(', ');
+    for (const part of explicit.split(',')) {
+      const addr = extractEmailAddress(part);
+      if (addr && !emails.some((e) => e.toLowerCase() === addr.toLowerCase())) {
+        emails.push(addr);
+      }
+    }
   }
-  return extractEmailAddress(process.env.EMAIL_FROM) || extractEmailAddress(process.env.SMTP_USER);
+  return emails.join(', ');
 }
 
 function escapeHtml(text: string): string {

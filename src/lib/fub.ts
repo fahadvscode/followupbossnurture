@@ -149,6 +149,41 @@ export async function searchPeopleByTag(
   return data.people || [];
 }
 
+/** People whose custom field equals this value (GET /people?customX=…). */
+export async function searchPeopleByCustomField(
+  fieldName: string,
+  value: string
+): Promise<Array<{ id: number }>> {
+  const trimmed = value.trim();
+  if (!trimmed || !fieldName.trim()) return [];
+  const params = new URLSearchParams({
+    [fieldName]: trimmed,
+    limit: '20',
+    fields: 'id',
+  });
+  const data = (await fubFetch(`/people?${params}`)) as {
+    people?: Array<{ id: number }>;
+  };
+  return data.people || [];
+}
+
+/**
+ * Set Client ID custom field. If `tags` is passed, it **replaces** the full tag
+ * list (do not use mergeTags — needed to drop old ID tags).
+ */
+export async function putPersonClientId(
+  personId: number,
+  clientId: string,
+  tags?: string[]
+): Promise<void> {
+  const body: Record<string, unknown> = { customClientID: clientId };
+  if (tags) body.tags = tags;
+  await fubFetch(`/people/${personId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
 /** Resolve FUB people by phone (GET /people?phone=…). */
 export async function searchPeopleByPhone(phone: string): Promise<FUBPerson[]> {
   const digits = phone.replace(/\D/g, '');
@@ -472,6 +507,9 @@ async function getCachedFubUsers(): Promise<FubUserLite[]> {
   return _cachedFubUsers;
 }
 
+/** Office / ISA login that should own drip tasks and email replies. */
+export const FUB_OFFICE_USER_EMAIL = 'sales@fahadsold.com';
+
 /** Resolve a FUB user's numeric ID from their display name (case-insensitive). */
 export async function resolveFubUserIdByName(name: string): Promise<number | undefined> {
   const needle = name.trim().toLowerCase();
@@ -479,6 +517,30 @@ export async function resolveFubUserIdByName(name: string): Promise<number | und
   const users = await getCachedFubUsers();
   const match = users.find((u) => u.name.toLowerCase() === needle);
   return match?.id;
+}
+
+/** Resolve a FUB user's numeric ID from email (case-insensitive). */
+export async function resolveFubUserIdByEmail(email: string): Promise<number | undefined> {
+  const needle = email.trim().toLowerCase();
+  if (!needle) return undefined;
+  const users = await getCachedFubUsers();
+  const match = users.find((u) => u.email.trim().toLowerCase() === needle);
+  return match?.id;
+}
+
+/**
+ * Default assignee for drip tasks and FUB email attribution:
+ * env FUB_DEFAULT_TASK_ASSIGNED_USER_ID, else Fahad Javed Office by email.
+ */
+export async function resolveFubOfficeUserId(): Promise<number | undefined> {
+  const envRaw =
+    process.env.FUB_DEFAULT_TASK_ASSIGNED_USER_ID?.trim() ||
+    process.env.FUB_EMAIL_USER_ID?.trim();
+  if (envRaw) {
+    const n = parseInt(envRaw, 10);
+    if (Number.isFinite(n)) return n;
+  }
+  return resolveFubUserIdByEmail(FUB_OFFICE_USER_EMAIL);
 }
 
 /** List action plans (GET /actionPlans). */

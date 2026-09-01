@@ -67,7 +67,7 @@ export function FubUserPicker({ users, loading, error, value, onChange, disabled
           }}
           disabled={disabled}
         >
-          <option value="">— Default (env or contact) —</option>
+          <option value="">— Fahad Javed Office (sales@fahadsold.com) —</option>
           {active.map((u) => (
             <option key={u.id} value={u.id}>
               {userLabel(u)}

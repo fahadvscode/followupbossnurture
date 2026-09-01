@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     try {
       await ensureLeadIdForContact(contact_id);
     } catch (err) {
-      console.error(`Lead ID tag failed for contact ${contact_id}:`, err);
+      console.error(`Client ID field failed for contact ${contact_id}:`, err);
     }
 
     const { data: existing } = await db

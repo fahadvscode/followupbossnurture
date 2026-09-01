@@ -10,6 +10,8 @@ import {
   postEmEmailDelivered,
   applyActionPlan,
   resolveFubUserIdByName,
+  resolveFubOfficeUserId,
+  FUB_OFFICE_USER_EMAIL,
 } from './fub';
 import { normalizePhone, formatDripStepDayLabel, isPlausibleSmsPhone } from './utils';
 import {
@@ -23,7 +25,7 @@ import { markContactOptedOut } from './contact-opt-out';
 import { handleTwilioSmsFailure } from './twilio-sms-failure';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendAiMessage } from './ai-engine';
-import { ensureLeadIdForContact } from './fub-lead-id';
+import { ensureLeadIdForContact, existingLeadIdTags, LEAD_ID_RE } from './fub-lead-id';
 import {
   contactHasInboundSmsSince,
   pauseEnrollmentIfLeadReplied,
@@ -53,17 +55,12 @@ function stepKind(step: DripCampaignStep): StepKind {
   return 'sms';
 }
 
-function resolveFubEmailUserId(step: DripCampaignStep): number | undefined {
+async function resolveFubEmailUserId(step: DripCampaignStep): Promise<number | undefined> {
   const sid = step.fub_email_user_id;
   if (sid != null && Number.isFinite(Number(sid))) {
     return Number(sid);
   }
-  const raw =
-    process.env.FUB_EMAIL_USER_ID?.trim() ||
-    process.env.FUB_DEFAULT_TASK_ASSIGNED_USER_ID?.trim();
-  if (!raw) return undefined;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) ? n : undefined;
+  return resolveFubOfficeUserId();
 }
 
 async function resolveFubTaskAssignee(
@@ -74,17 +71,26 @@ async function resolveFubTaskAssignee(
   if (sid != null && Number.isFinite(Number(sid))) {
     return { assignedUserId: Number(sid) };
   }
-  const envRaw = process.env.FUB_DEFAULT_TASK_ASSIGNED_USER_ID?.trim();
-  if (envRaw) {
-    const n = parseInt(envRaw, 10);
-    if (Number.isFinite(n)) return { assignedUserId: n };
-  }
+  const office = await resolveFubOfficeUserId();
+  if (office != null) return { assignedUserId: office };
   const name = contact.assigned_agent?.trim();
   if (name) {
     const resolved = await resolveFubUserIdByName(name);
     if (resolved != null) return { assignedUserId: resolved };
   }
   return {};
+}
+
+function clientIdFromContact(contact: DripContact): string {
+  const cf = contact.custom_fields || {};
+  const fromField = String(cf.customClientID ?? cf.customClientId ?? '').trim();
+  if (LEAD_ID_RE.test(fromField)) return fromField;
+  const tags = Array.isArray(contact.tags) ? contact.tags.map(String) : [];
+  return existingLeadIdTags(tags)[0] || '';
+}
+
+function tagsWithoutLeadIds(tags: string[]): string[] {
+  return tags.filter((t) => !LEAD_ID_RE.test(t));
 }
 
 function templateVars(contact: DripContact, campaignName: string): Record<string, string> {
@@ -94,6 +100,7 @@ function templateVars(contact: DripContact, campaignName: string): Record<string
     (typeof cf.City === 'string' ? cf.City : '') ||
     '';
   const project = contact.source_detail || campaignName;
+  const clientId = clientIdFromContact(contact);
   return {
     first_name: contact.first_name || '',
     last_name: contact.last_name || '',
@@ -101,6 +108,8 @@ function templateVars(contact: DripContact, campaignName: string): Record<string
     project_name: project,
     campaign: campaignName,
     city,
+    client_id: clientId,
+    lead_id: clientId,
     qikfill_link:
       process.env.QIKFILL_LINK?.trim() || process.env.BOOKING_LINK?.trim() || '',
     agent_phone:
@@ -583,7 +592,10 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
     let smtpError: string | undefined;
     if (process.env.SMTP_HOST?.trim()) {
       try {
-        smtpSent = await sendSmtpIfConfigured(to, subject, body, html, smtpHeaders);
+        smtpSent = await sendSmtpIfConfigured(to, subject, body, html, smtpHeaders, {
+          replyTo:
+            process.env.EMAIL_REPLY_TO?.trim() || FUB_OFFICE_USER_EMAIL,
+        });
       } catch (smtpErr) {
         smtpError = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
         console.error(`SMTP failed for ${to} (FUB timeline will still log):`, smtpErr);
@@ -595,7 +607,7 @@ async function processEmailStep(msg: DueMessage): Promise<boolean> {
       recipient: to,
       occurred: now,
       personId: contact.fub_id ?? undefined,
-      userId: resolveFubEmailUserId(msg.step),
+      userId: await resolveFubEmailUserId(msg.step),
     });
 
     const logBody = `[Email — FUB timeline${smtpSent ? ' + inbox (SMTP)' : smtpError ? ' (SMTP failed)' : ''}] ${subject}\n\n${body}`;
@@ -740,7 +752,10 @@ async function processFubTaskStep(msg: DueMessage): Promise<boolean> {
   const vars = templateVars(contact, campaign.name);
   const nameTemplate =
     (step.fub_task_name_template || '').trim() || step.message_template || '';
-  const taskName = renderTemplate(nameTemplate, vars).trim() || `Follow up — ${campaign.name}`;
+  let taskName = renderTemplate(nameTemplate, vars).trim() || `Follow up — ${campaign.name}`;
+  if (vars.client_id && !taskName.includes(vars.client_id)) {
+    taskName = `${taskName} [${vars.client_id}]`.slice(0, 240);
+  }
 
   const assignee = await resolveFubTaskAssignee(step, contact);
   if (assignee.assignedUserId == null) {
@@ -1052,7 +1067,7 @@ export async function autoEnrollContact(
   try {
     await ensureLeadIdForContact(contactId);
   } catch (err) {
-    console.error(`Lead ID tag failed for contact ${contactId}:`, err);
+    console.error(`Client ID field failed for contact ${contactId}:`, err);
   }
 
   const { data: campaigns } = await db
@@ -1062,8 +1077,10 @@ export async function autoEnrollContact(
 
   if (!campaigns) return result;
 
-  const normalizedTags = Array.isArray(tags) ? tags : [];
-  const previousTags = Array.isArray(options.previousTags) ? options.previousTags : [];
+  const normalizedTags = tagsWithoutLeadIds(Array.isArray(tags) ? tags : []);
+  const previousTags = tagsWithoutLeadIds(
+    Array.isArray(options.previousTags) ? options.previousTags : []
+  );
   const previousSource = options.previousSourceCategory || '';
   const isNewPersonEvent = options.webhookEvent === 'peopleCreated';
   const hasNewInquiry = Boolean(options.hasNewInquiry);

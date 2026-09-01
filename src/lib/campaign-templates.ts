@@ -18,6 +18,13 @@ type StepInput = Partial<TemplateStep> & {
   step_type: TemplateStep['step_type'];
 };
 
+function withClientIdMergeTag(input: StepInput): string {
+  const name = input.fub_task_name_template ?? '';
+  if (input.step_type !== 'fub_task' && input.step_type !== 'fub_action_plan') return name;
+  if (!name.trim() || name.includes('{client_id}')) return name;
+  return `${name} [{client_id}]`;
+}
+
 /** Fill a template step with safe defaults so every field the form expects is present. */
 function step(input: StepInput): TemplateStep {
   return {
@@ -31,7 +38,7 @@ function step(input: StepInput): TemplateStep {
     email_body_format: input.email_body_format ?? 'plain',
     fub_action_plan_id: input.fub_action_plan_id ?? '',
     fub_task_type: input.fub_task_type ?? 'Call',
-    fub_task_name_template: input.fub_task_name_template ?? '',
+    fub_task_name_template: withClientIdMergeTag(input),
     fub_due_offset_minutes: input.fub_due_offset_minutes ?? 0,
     fub_assigned_user_id: input.fub_assigned_user_id ?? '',
     fub_email_user_id: input.fub_email_user_id ?? '',

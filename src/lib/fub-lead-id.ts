@@ -1,10 +1,18 @@
-import { mergePersonTags, searchPeopleByTag, getPersonByIdFull } from '@/lib/fub';
+import {
+  getPersonByIdFull,
+  putPersonClientId,
+  searchPeopleByCustomField,
+  searchPeopleByTag,
+} from '@/lib/fub';
 import { normalizeFubTags } from '@/lib/fub-contact-from-person';
 import { getServiceClient } from '@/lib/supabase';
 
 /** TB-082612028M or TB-0826SD2028M, optional uniqueness suffix -2 */
 export const LEAD_ID_RE =
   /^[A-Z]{1,2}-\d{4}(?:SD|[0-3])\d{4}[A-Z](?:-\d+)?$/;
+
+/** FUB custom field name (label: Client ID). Case-sensitive. */
+export const FUB_CLIENT_ID_FIELD = 'customClientID';
 
 const CONDO_TAGS = new Set(['condo', 'condos']);
 const TOWN_TAGS = new Set(['townhome', 'townhomes', 'townhouse', 'townhouses']);
@@ -86,15 +94,32 @@ export function existingLeadIdTags(tags: string[]): string[] {
   return tags.filter((t) => LEAD_ID_RE.test(t));
 }
 
+export function clientIdFromCustomField(person: Record<string, unknown>): string | null {
+  const raw = person[FUB_CLIENT_ID_FIELD];
+  const value = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : '';
+  return LEAD_ID_RE.test(value) ? value : null;
+}
+
+function tagsWithoutLeadIds(tags: string[]): string[] {
+  return tags.filter((t) => !LEAD_ID_RE.test(t));
+}
+
+async function clientIdTaken(candidate: string, personId: number): Promise<boolean> {
+  const byField = await searchPeopleByCustomField(FUB_CLIENT_ID_FIELD, candidate);
+  if (byField.some((p) => p.id !== personId)) return true;
+  const byTag = await searchPeopleByTag(candidate);
+  return byTag.some((p) => p.id !== personId);
+}
+
 export function buildLeadId(person: Record<string, unknown>): string {
   const tags = normalizeFubTags(person.tags);
   return `${initials(person)}-${createdMmyy(person)}${propertyType(tags)}${phoneLast4(person)}${cityLetter(tags)}`;
 }
 
 /**
- * Give this person exactly one lead-ID tag.
- * Does nothing if they already have one. Never adds a second ID.
- * If the generated ID is already on someone else, appends -2, -3, …
+ * Give this person exactly one Client ID in the FUB custom field.
+ * Copies an existing ID tag into the field and strips ID tags.
+ * Never adds a second ID. If the generated ID is taken, appends -2, -3, …
  */
 export async function ensureFubLeadIdTag(
   person: Record<string, unknown>
@@ -106,44 +131,63 @@ export async function ensureFubLeadIdTag(
   }
 
   const tags = normalizeFubTags(person.tags);
-  const existing = existingLeadIdTags(tags);
-  if (existing.length > 0) {
-    return { tag: existing[0], added: false };
+  const idTags = existingLeadIdTags(tags);
+  const remaining = tagsWithoutLeadIds(tags);
+  const fromField = clientIdFromCustomField(person);
+
+  if (fromField) {
+    if (idTags.length > 0) {
+      await putPersonClientId(personId, fromField, remaining);
+      person.tags = remaining;
+    }
+    return { tag: fromField, added: false };
+  }
+
+  if (idTags.length > 0) {
+    const tag = idTags[0];
+    await putPersonClientId(personId, tag, remaining);
+    person[FUB_CLIENT_ID_FIELD] = tag;
+    person.tags = remaining;
+    return { tag, added: true };
   }
 
   const base = buildLeadId(person);
   let candidate = base;
   for (let n = 2; n <= 99; n++) {
-    const holders = await searchPeopleByTag(candidate);
-    const taken = holders.some((p) => p.id !== personId);
-    if (!taken) break;
+    if (!(await clientIdTaken(candidate, personId))) break;
     candidate = `${base}-${n}`;
   }
 
-  await mergePersonTags(personId, [candidate]);
+  await putPersonClientId(personId, candidate);
+  person[FUB_CLIENT_ID_FIELD] = candidate;
   return { tag: candidate, added: true };
 }
 
-/** Stamp a unique lead-ID tag when a contact enters any drip. No-op if they already have one. */
+/** Stamp a unique Client ID when a contact enters any drip. No-op if they already have one. */
 export async function ensureLeadIdForContact(contactId: string): Promise<string | null> {
   const db = getServiceClient();
   const { data } = await db
     .from('drip_contacts')
-    .select('fub_id, tags')
+    .select('fub_id, tags, custom_fields')
     .eq('id', contactId)
     .maybeSingle();
 
   if (!data?.fub_id) return null;
 
-  const tags = Array.isArray(data.tags) ? data.tags.map(String) : [];
-  const already = existingLeadIdTags(tags);
-  if (already.length > 0) return already[0];
+  const cf =
+    data.custom_fields && typeof data.custom_fields === 'object' && !Array.isArray(data.custom_fields)
+      ? (data.custom_fields as Record<string, unknown>)
+      : {};
+  const fromField = clientIdFromCustomField(cf);
+  if (fromField) return fromField;
 
   const person = await getPersonByIdFull(Number(data.fub_id));
   const { tag, added } = await ensureFubLeadIdTag(person);
-  if (tag && !tags.includes(tag)) {
-    await db.from('drip_contacts').update({ tags: [...tags, tag] }).eq('id', contactId);
+  if (tag && added) {
+    await db
+      .from('drip_contacts')
+      .update({ custom_fields: { ...cf, [FUB_CLIENT_ID_FIELD]: tag } })
+      .eq('id', contactId);
   }
   return added || tag ? tag : null;
 }
-

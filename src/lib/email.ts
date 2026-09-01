@@ -47,7 +47,8 @@ export async function sendSmtpIfConfigured(
   subject: string,
   text: string,
   html: string,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: Record<string, string>,
+  options?: { replyTo?: string }
 ): Promise<boolean> {
   const host = process.env.SMTP_HOST?.trim();
   if (!host) return false;
@@ -82,9 +83,12 @@ export async function sendSmtpIfConfigured(
       : {}),
   });
 
+  const replyTo = options?.replyTo?.trim();
+
   await transporter.sendMail({
     from,
     to,
+    ...(replyTo ? { replyTo } : {}),
     subject,
     text,
     html,

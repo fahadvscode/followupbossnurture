@@ -3,7 +3,8 @@ import { getServiceClient } from './supabase';
 import { shouldDeferProactiveSms } from './sms-quiet-hours';
 import { sendSMS, sendMMS } from './twilio';
 import { normalizePhone, isPlausibleSmsPhone } from './utils';
-import { pushEvent, createFubTask } from './fub';
+import { pushEvent, createFubTask, resolveFubOfficeUserId } from './fub';
+import { existingLeadIdTags, LEAD_ID_RE } from './fub-lead-id';
 import { handleTwilioSmsFailure, pauseAiForSmsFailure } from './twilio-sms-failure';
 import type {
   AiCampaignConfig,
@@ -774,13 +775,22 @@ async function escalateConversation(
     (config.escalation_action === 'fub_task' || config.escalation_action === 'both') &&
     contact.fub_id
   ) {
+    const officeId = await resolveFubOfficeUserId();
     const assignee = config.escalation_fub_user_id
       ? { assignedUserId: config.escalation_fub_user_id }
-      : {};
+      : officeId != null
+        ? { assignedUserId: officeId }
+        : {};
 
+    const cf = contact.custom_fields || {};
+    const fromField = String(cf.customClientID ?? cf.customClientId ?? '').trim();
+    const tags = Array.isArray(contact.tags) ? contact.tags.map(String) : [];
+    const clientId = LEAD_ID_RE.test(fromField) ? fromField : existingLeadIdTags(tags)[0] || '';
     createFubTask({
       personId: contact.fub_id,
-      name: `AI Nurture escalation: ${reason}`,
+      name: clientId
+        ? `AI Nurture escalation: ${reason} [${clientId}]`
+        : `AI Nurture escalation: ${reason}`,
       type: 'Follow Up',
       dueDateTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       ...assignee,

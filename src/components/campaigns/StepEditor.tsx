@@ -371,7 +371,7 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
               <label className="block text-xs text-muted mb-1">
                 SMS message
                 <span className="text-muted/60 ml-1">
-                  {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{qikfill_link}'} {'{agent_phone}'}
+                  {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{client_id}'} {'{qikfill_link}'} {'{agent_phone}'}
                 </span>
               </label>
               <Textarea
@@ -447,7 +447,7 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
                 <label className="block text-xs text-muted mb-1">
                   {step.email_body_format === 'html' ? 'Email body (HTML)' : 'Email body (plain text)'}
                   <span className="text-muted/60 ml-1">
-                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{qikfill_link}'} {'{agent_phone}'}
+                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{client_id}'} {'{qikfill_link}'} {'{agent_phone}'}
                   </span>
                 </label>
                 <Textarea
@@ -487,9 +487,8 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
                   onChange={(v) => updateStep(index, { fub_email_user_id: v })}
                 />
                 <p className="text-xs text-muted mt-1">
-                  Credits the <code className="text-[11px]">delivered</code> event to this FUB user. If unset, uses{' '}
-                  <code className="text-[11px]">FUB_EMAIL_USER_ID</code> or{' '}
-                  <code className="text-[11px]">FUB_DEFAULT_TASK_ASSIGNED_USER_ID</code> in env.
+                  Credits the <code className="text-[11px]">delivered</code> event to this FUB user. If unset,
+                  uses Fahad Javed Office (<code className="text-[11px]">sales@fahadsold.com</code>).
                 </p>
               </div>
               <p className="text-xs text-muted">
@@ -580,7 +579,7 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
                 <label className="block text-xs text-muted mb-1">
                   Task name
                   <span className="text-muted/60 ml-1">
-                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{qikfill_link}'} {'{agent_phone}'}
+                    {'{first_name}'} {'{last_name}'} {'{project}'} {'{city}'} {'{client_id}'} {'{qikfill_link}'} {'{agent_phone}'}
                   </span>
                 </label>
                 <Input
@@ -615,8 +614,8 @@ export function StepEditor({ steps, onChange }: StepEditorProps) {
                   onChange={(v) => updateStep(index, { fub_assigned_user_id: v })}
                 />
                 <p className="text-xs text-muted mt-1">
-                  If you leave default, the runner uses <code className="text-[11px]">FUB_DEFAULT_TASK_ASSIGNED_USER_ID</code>{' '}
-                  in env, then the contact&apos;s assigned agent in FUB.
+                  If you leave default, tasks go to Fahad Javed Office (
+                  <code className="text-[11px]">sales@fahadsold.com</code>).
                 </p>
               </div>
               <div>
