@@ -123,7 +123,7 @@ export async function healStuckEnrollments(db: Db): Promise<HealStuckResult> {
         );
       } else {
         result.details.push(
-          `${label}: step ${nextStep} waiting for SMS retry (${summarizeErrorDetail(priorFail.error_detail) || 'transient failure'})`
+          `${label}: step ${nextStep} waiting for SMS retry backoff (${summarizeErrorDetail(priorFail.error_detail) || 'transient failure'})`
         );
       }
       continue;

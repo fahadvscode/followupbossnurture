@@ -6,6 +6,7 @@ import { normalizePhone, isPlausibleSmsPhone } from './utils';
 import { pushEvent, createFubTask, resolveFubOfficeUserId } from './fub';
 import { existingLeadIdTags, LEAD_ID_RE } from './fub-lead-id';
 import { handleTwilioSmsFailure, pauseAiForSmsFailure } from './twilio-sms-failure';
+import { isWithinRetryBackoff } from './delivery-error-meta';
 import type {
   AiCampaignConfig,
   AiConversation,
@@ -932,6 +933,23 @@ export async function findDueAiFirstTouches(): Promise<
       .single();
     if (!contactRow || contactRow.opted_out) continue;
     if (!isPlausibleSmsPhone(contactRow.phone)) continue;
+
+    const { data: priorFail } = await db
+      .from('drip_messages')
+      .select('error_detail, created_at, sent_at')
+      .eq('enrollment_id', conv.enrollment_id)
+      .eq('direction', 'outbound')
+      .eq('status', 'failed')
+      .eq('channel', 'sms')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (
+      priorFail &&
+      isWithinRetryBackoff(priorFail.error_detail, priorFail.created_at || priorFail.sent_at)
+    ) {
+      continue;
+    }
 
     results.push({
       enrollment: {

@@ -103,6 +103,19 @@ export function errorDetailIndicatesUnsubscribed(detail: unknown): boolean {
   return msg.includes('21610') || msg.includes('unsubscribed');
 }
 
+/** Twilio 20003 — bad credentials or suspended/closed account. */
+export function isTwilioAuthFailure(detail: unknown): boolean {
+  if (errorDetailCode(detail) === 20003) return true;
+  if (!detail || typeof detail !== 'object') return false;
+  const msg = String((detail as Record<string, unknown>).message || '').toLowerCase();
+  return (
+    msg.includes('20003') ||
+    msg.includes('authenticate') ||
+    msg.includes('account suspended') ||
+    msg.includes('not active')
+  );
+}
+
 /** Billing / account / rate-limit errors — safe to retry after Twilio is funded again. */
 export function isTwilioRetryableFailure(detail: unknown): boolean {
   const code = errorDetailCode(detail);
@@ -121,6 +134,24 @@ export function isTwilioRetryableFailure(detail: unknown): boolean {
     msg.includes('account suspended') ||
     msg.includes('payment')
   );
+}
+
+/** How long to wait before retrying a failed SMS so cron does not write a new row every 5 minutes. */
+export function retryBackoffMsForFailure(detail: unknown): number {
+  if (isTwilioAuthFailure(detail)) return 6 * 60 * 60 * 1000;
+  if (isTwilioRetryableFailure(detail)) return 30 * 60 * 1000;
+  return 15 * 60 * 1000;
+}
+
+export function isWithinRetryBackoff(
+  detail: unknown,
+  lastFailAt: string | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!lastFailAt) return false;
+  const elapsed = now - new Date(lastFailAt).getTime();
+  if (!Number.isFinite(elapsed) || elapsed < 0) return false;
+  return elapsed < retryBackoffMsForFailure(detail);
 }
 
 export function isTwilioPermanentStoredFailure(detail: unknown): boolean {

@@ -4,7 +4,7 @@ import { findDueAiFollowUps, findDueAiFirstTouches, sendAiMessage } from '@/lib/
 import { AUTH_COOKIE } from '@/lib/auth';
 import { isValidSessionCookie } from '@/lib/auth-session';
 import { getServiceClient } from '@/lib/supabase';
-import { summarizeErrorDetail } from '@/lib/delivery-error-meta';
+import { isTwilioAuthFailure, summarizeErrorDetail } from '@/lib/delivery-error-meta';
 import { syncRecentFubLeads } from '@/lib/fub-recent-sync';
 import { healStuckEnrollments } from '@/lib/enrollment-heal';
 import { processRecentCallAutoSms } from '@/lib/fub-call-auto-sms';
@@ -140,7 +140,15 @@ export async function GET(request: NextRequest) {
       error: string;
     }> = [];
 
+    let haltSmsForAuth = false;
+
     for (const msg of dueMessages) {
+      const isSms = (msg.step.step_type || 'sms') === 'sms';
+      if (haltSmsForAuth && isSms) {
+        failed++;
+        continue;
+      }
+
       const success = await processDueMessage(msg);
       if (success) {
         sent++;
@@ -163,6 +171,13 @@ export async function GET(request: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      if (isSms && isTwilioAuthFailure(failedRow?.error_detail)) {
+        haltSmsForAuth = true;
+        console.error(
+          'Twilio auth failed (20003) — skipping remaining SMS this tick to avoid retry/egress storm'
+        );
+      }
 
       failures.push({
         enrollmentId: msg.enrollment.id,
@@ -233,6 +248,7 @@ export async function GET(request: NextRequest) {
       processed: dueMessages.length,
       sent,
       failed,
+      sms_halted_for_twilio_auth: haltSmsForAuth,
       ai_messages_sent: aiSent,
       ai_first_touch_sent: aiFirstTouchSent,
       ai_follow_ups_sent: aiSent - aiFirstTouchSent,

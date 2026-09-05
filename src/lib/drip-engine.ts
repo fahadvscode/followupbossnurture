@@ -19,6 +19,8 @@ import {
   errorDetailIndicatesUnsubscribed,
   isTwilioInvalidPhoneError,
   isTwilioPermanentStoredFailure,
+  isWithinRetryBackoff,
+  retryBackoffMsForFailure,
   summarizeErrorDetail,
 } from './delivery-error-meta';
 import { markContactOptedOut } from './contact-opt-out';
@@ -338,7 +340,7 @@ export async function findDueMessagesWithDiagnostics(): Promise<{
 
     const { data: priorFail } = await db
       .from('drip_messages')
-      .select('id, error_detail')
+      .select('id, error_detail, created_at, sent_at')
       .eq('enrollment_id', enrollment.id)
       .eq('step_number', nextStepNumber)
       .eq('direction', 'outbound')
@@ -358,7 +360,16 @@ export async function findDueMessagesWithDiagnostics(): Promise<{
           summarizeErrorDetail(priorFail.error_detail) || 'Prior send failed for this step'
         );
       } else {
-        // Transient failure (e.g. Twilio billing) — keep step due so cron retries.
+        const lastFailAt = priorFail.created_at || priorFail.sent_at;
+        if (isWithinRetryBackoff(priorFail.error_detail, lastFailAt)) {
+          const waitMin = Math.round(retryBackoffMsForFailure(priorFail.error_detail) / 60000);
+          pushSkip(
+            'retry_backoff',
+            `${summarizeErrorDetail(priorFail.error_detail) || 'Transient failure'} — waiting ${waitMin}m before next attempt`
+          );
+          continue;
+        }
+        // Transient failure (e.g. Twilio billing) — retry after backoff.
         pushSkip(
           'retry_after_transient_failure',
           summarizeErrorDetail(priorFail.error_detail) || 'Will retry SMS for this step'
