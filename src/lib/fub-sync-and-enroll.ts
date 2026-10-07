@@ -54,9 +54,13 @@ export async function syncFubPersonAndEnroll(
   const previousSourceCategory = (beforeRow?.source_category as string) || '';
   const isNewContact = !beforeRow;
 
-  const { contactId, opted_out, hasNewInquiry } = await syncFubPersonDeep(db, personId, {
-    syncTimeline: shouldSyncFubTimeline(webhookEvent),
-  });
+  const { contactId, opted_out, hasNewInquiry, inquiryContext } = await syncFubPersonDeep(
+    db,
+    personId,
+    {
+      syncTimeline: shouldSyncFubTimeline(webhookEvent),
+    }
+  );
 
   const { data: contact } = await db
     .from('drip_contacts')
@@ -83,6 +87,7 @@ export async function syncFubPersonAndEnroll(
         webhookEvent,
         hasNewInquiry,
         isNewContact,
+        inquiryContext,
       }
     );
   }

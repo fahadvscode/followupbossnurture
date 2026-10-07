@@ -33,6 +33,8 @@ import {
   pauseEnrollmentIfLeadReplied,
   shouldPauseStandardDripOnSmsReply,
 } from './lead-replied';
+import { pickExclusiveWinner } from './campaign-exclusivity';
+import { latestInquiryContextForContact } from './fub-person-sync';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
 
 interface CampaignSendContext {
@@ -965,6 +967,8 @@ export type AutoEnrollOptions = {
   hasNewInquiry?: boolean;
   /** True when the contact row didn't exist before this sync — first-time import. */
   isNewContact?: boolean;
+  /** Latest FUB inquiry source/message (e.g. Facebook.Enclave Milton Towns). */
+  inquiryContext?: string;
 };
 
 /**
@@ -1097,8 +1101,48 @@ export async function autoEnrollContact(
   const hasNewInquiry = Boolean(options.hasNewInquiry);
   const isNewContact = Boolean(options.isNewContact);
 
+  // One drip per inquiry, for EVERY inquiry and every project: when several standard
+  // campaigns match a contact (usually because of leftover tags from older inquiries),
+  // only the one that best fits the LATEST inquiry may run. AI Nurture is separate.
+  const contenders = campaigns.filter(
+    (c) =>
+      c.campaign_type !== 'ai_nurture' &&
+      campaignTriggersForContact(c, normalizedTags, sourceCategory)
+  );
+
+  const exclusiveLosers = new Map<string, string>(); // campaign id -> winner name
+  if (contenders.length > 1) {
+    let inquiryContext = options.inquiryContext || '';
+    if (!inquiryContext) {
+      inquiryContext = await latestInquiryContextForContact(db, contactId).catch(() => '');
+    }
+    const winner = pickExclusiveWinner(contenders, normalizedTags, inquiryContext);
+    for (const c of contenders) {
+      if (c.id !== winner.id) exclusiveLosers.set(c.id, winner.name);
+    }
+  }
+
   for (const campaign of campaigns) {
     const matchesNow = campaignTriggersForContact(campaign, normalizedTags, sourceCategory);
+
+    if (matchesNow && exclusiveLosers.has(campaign.id)) {
+      // A new inquiry means older sibling drips for other projects should stop.
+      if (hasNewInquiry || isNewContact || isNewPersonEvent) {
+        await db
+          .from('drip_enrollments')
+          .update({ status: 'paused', paused_at: new Date().toISOString() })
+          .eq('contact_id', contactId)
+          .eq('campaign_id', campaign.id)
+          .eq('status', 'active');
+      }
+      result.skipped.push({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        reason: `not_latest_inquiry (using ${exclusiveLosers.get(campaign.id)})`,
+      });
+      continue;
+    }
+
     if (!matchesNow) {
       const groups = Array.isArray(campaign.trigger_groups) ? campaign.trigger_groups : [];
       const usableGroups = groups.filter(

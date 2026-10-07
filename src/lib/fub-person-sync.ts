@@ -105,6 +105,12 @@ async function insertInChunks(
 /** Events / notes whose message or type indicates a fresh lead inquiry. */
 const INQUIRY_PATTERN = /inquir(y|ies)|registered|registration|property\s*(view|inquir)|lead\s*created/i;
 
+export function inquiryHaystackFromEvent(e: Record<string, unknown>): string {
+  return [e.source, e.message, e.description, e.type]
+    .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+    .join(' ');
+}
+
 /** SMS replies and drip timeline noise must not count as a new inquiry (would restart paused drips). */
 function isDripSmsActivity(e: Record<string, unknown>): boolean {
   const type = typeof e.type === 'string' ? e.type.toLowerCase() : '';
@@ -118,7 +124,7 @@ function isDripSmsActivity(e: Record<string, unknown>): boolean {
   return false;
 }
 
-function isInquiryEvent(e: Record<string, unknown>): boolean {
+export function isInquiryEvent(e: Record<string, unknown>): boolean {
   if (isDripSmsActivity(e)) return false;
   const type = typeof e.type === 'string' ? e.type : '';
   const source = typeof e.source === 'string' ? e.source : '';
@@ -132,7 +138,7 @@ function isInquiryEvent(e: Record<string, unknown>): boolean {
   );
 }
 
-function isInquiryNote(n: Record<string, unknown>): boolean {
+export function isInquiryNote(n: Record<string, unknown>): boolean {
   const subject = typeof n.subject === 'string' ? n.subject : '';
   const body = typeof n.body === 'string' ? n.body : '';
   const type = typeof n.type === 'string' ? n.type : '';
@@ -145,6 +151,50 @@ function timestamp(v: unknown): number {
   if (typeof v !== 'string') return 0;
   const t = Date.parse(v);
   return Number.isFinite(t) ? t : 0;
+}
+
+/** Newest inquiry event/note text for exclusive campaign scoring. */
+export async function latestInquiryContextForContact(
+  db: Db,
+  contactId: string
+): Promise<string> {
+  const [{ data: events }, { data: notes }] = await Promise.all([
+    db
+      .from('drip_fub_events')
+      .select('event_source, message, description, event_type, occurred_at')
+      .eq('contact_id', contactId)
+      .order('occurred_at', { ascending: false })
+      .limit(40),
+    db
+      .from('drip_fub_notes')
+      .select('subject, body, note_type, fub_created_at')
+      .eq('contact_id', contactId)
+      .order('fub_created_at', { ascending: false })
+      .limit(20),
+  ]);
+
+  type Hit = { ts: number; text: string };
+  const hits: Hit[] = [];
+  for (const row of events || []) {
+    const e = {
+      source: row.event_source,
+      message: row.message,
+      description: row.description,
+      type: row.event_type,
+    };
+    if (!isInquiryEvent(e)) continue;
+    hits.push({ ts: timestamp(row.occurred_at), text: inquiryHaystackFromEvent(e) });
+  }
+  for (const row of notes || []) {
+    const n = { subject: row.subject, body: row.body, type: row.note_type };
+    if (!isInquiryNote(n)) continue;
+    hits.push({
+      ts: timestamp(row.fub_created_at),
+      text: [row.subject, row.body].filter((v) => typeof v === 'string' && v.trim()).join(' '),
+    });
+  }
+  hits.sort((a, b) => b.ts - a.ts);
+  return hits[0]?.text || '';
 }
 
 export type SyncFubPersonOptions = {
@@ -177,7 +227,12 @@ export async function syncFubPersonDeep(
   db: Db,
   fubPersonId: number,
   options: SyncFubPersonOptions = {}
-): Promise<{ contactId: string; opted_out: boolean; hasNewInquiry: boolean }> {
+): Promise<{
+  contactId: string;
+  opted_out: boolean;
+  hasNewInquiry: boolean;
+  inquiryContext: string;
+}> {
   const person = await getPersonByIdFull(fubPersonId);
   if (!person || typeof person.id !== 'number') {
     throw new Error('Invalid FUB person response');
@@ -267,7 +322,7 @@ export async function syncFubPersonDeep(
       .select('opted_out')
       .eq('id', contactId)
       .single();
-    return { contactId, opted_out: Boolean(row?.opted_out), hasNewInquiry: false };
+    return { contactId, opted_out: Boolean(row?.opted_out), hasNewInquiry: false, inquiryContext: '' };
   }
 
   const [notes, events] = await Promise.all([
@@ -276,6 +331,8 @@ export async function syncFubPersonDeep(
   ]);
 
   let hasNewInquiry = false;
+  let inquiryContext = '';
+  let newestInquiryTs = 0;
 
   for (const e of events) {
     const occurred =
@@ -285,25 +342,39 @@ export async function syncFubPersonDeep(
           ? e.created
           : null;
     const ts = timestamp(occurred);
-    if (ts > priorLatestEventMs && isInquiryEvent(e)) {
+    if (ts > priorLatestEventMs && isInquiryEvent(e) && ts >= newestInquiryTs) {
       hasNewInquiry = true;
-      break;
+      newestInquiryTs = ts;
+      inquiryContext = inquiryHaystackFromEvent(e);
     }
   }
 
   if (!hasNewInquiry) {
     for (const n of notes) {
       const ts = timestamp(n.created);
-      if (ts > priorLatestNoteMs && isInquiryNote(n)) {
+      if (ts > priorLatestNoteMs && isInquiryNote(n) && ts >= newestInquiryTs) {
         hasNewInquiry = true;
-        break;
+        newestInquiryTs = ts;
+        inquiryContext = [n.subject, n.body]
+          .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+          .join(' ');
       }
     }
   }
 
   // Brand-new contact whose very first event on record is an inquiry counts as a new inquiry too.
   if (!existing?.id && !hasNewInquiry) {
-    hasNewInquiry = events.some(isInquiryEvent) || notes.some(isInquiryNote);
+    const firstEvent = events.find(isInquiryEvent);
+    const firstNote = notes.find(isInquiryNote);
+    if (firstEvent) {
+      hasNewInquiry = true;
+      inquiryContext = inquiryHaystackFromEvent(firstEvent);
+    } else if (firstNote) {
+      hasNewInquiry = true;
+      inquiryContext = [firstNote.subject, firstNote.body]
+        .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+        .join(' ');
+    }
   }
 
   // Suppress if we had inquiries before AND no new ones — nothing to restart on.
@@ -335,5 +406,5 @@ export async function syncFubPersonDeep(
     .eq('id', contactId)
     .single();
 
-  return { contactId, opted_out: Boolean(row?.opted_out), hasNewInquiry };
+  return { contactId, opted_out: Boolean(row?.opted_out), hasNewInquiry, inquiryContext };
 }
