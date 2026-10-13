@@ -19,7 +19,7 @@ export function businessIdentity(): BusinessIdentity {
     address:
       process.env.BUSINESS_ADDRESS?.trim() ||
       '600 Matheson Blvd W, Mississauga, ON L5R 4C1',
-    phone: process.env.BUSINESS_PHONE?.trim() || '647-898-1739',
+    phone: process.env.BUSINESS_PHONE?.trim() || '289-536-9724',
     email:
       process.env.BUSINESS_EMAIL?.trim() ||
       process.env.EMAIL_FROM?.trim() ||

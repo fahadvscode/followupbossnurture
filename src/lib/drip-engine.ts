@@ -117,7 +117,7 @@ function templateVars(contact: DripContact, campaignName: string): Record<string
     qikfill_link:
       process.env.QIKFILL_LINK?.trim() || process.env.BOOKING_LINK?.trim() || '',
     agent_phone:
-      process.env.AGENT_PHONE?.trim() || process.env.TWILIO_PHONE_NUMBER?.trim() || '',
+      process.env.AGENT_PHONE?.trim() || '289-536-9724',
   };
 }
 

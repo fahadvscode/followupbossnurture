@@ -30,7 +30,7 @@ export const INBOX_REPLY_TEMPLATES: InboxReplyTemplate[] = [
     id: 'quick_call',
     label: 'Quick call',
     body: (first) =>
-      `${greet(first)}, are you available for a quick call? You can also reach me at 647-898-1739.`,
+      `${greet(first)}, are you available for a quick call? You can also reach me at 289-536-9724.`,
   },
   {
     id: 'book_time',
