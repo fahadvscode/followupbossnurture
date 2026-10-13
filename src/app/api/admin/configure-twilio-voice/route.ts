@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       phoneNumber: updated.phoneNumber,
       voiceUrl,
-      forwardTo: process.env.TWILIO_VOICE_FORWARD_TO?.trim() || '+16478981739',
+      forwardTo: process.env.TWILIO_VOICE_FORWARD_TO?.trim() || '+12895369724',
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Twilio error';

@@ -36,7 +36,7 @@ async function main() {
   }
 
   const forwardTo =
-    process.env.TWILIO_VOICE_FORWARD_TO?.trim() || '+16478981739';
+    process.env.TWILIO_VOICE_FORWARD_TO?.trim() || '+12895369724';
   console.log(`Done. Calls to ${updated.phoneNumber} will forward to ${forwardTo}.`);
 }
 

@@ -3,7 +3,7 @@ import { normalizePhone } from '@/lib/utils';
 
 /** Twilio drip line that forwards inbound voice calls. */
 export const DEFAULT_VOICE_FORWARD_FROM = '+16475605822';
-const DEFAULT_FORWARD_TO = '+16478981739';
+const DEFAULT_FORWARD_TO = '+12895369724';
 
 function getClient() {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
