@@ -1111,15 +1111,22 @@ export async function autoEnrollContact(
   );
 
   const exclusiveLosers = new Map<string, string>(); // campaign id -> winner name
-  if (contenders.length > 1) {
+  let inquiryWinnerId: string | null = null;
+  if (contenders.length > 0) {
     let inquiryContext = options.inquiryContext || '';
-    if (!inquiryContext) {
+    if (contenders.length > 1 && !inquiryContext) {
       inquiryContext = await latestInquiryContextForContact(db, contactId).catch(() => '');
     }
-    const winner = pickExclusiveWinner(contenders, normalizedTags, inquiryContext);
+    const winner =
+      contenders.length === 1
+        ? contenders[0]
+        : pickExclusiveWinner(contenders, normalizedTags, inquiryContext);
     for (const c of contenders) {
       if (c.id !== winner.id) exclusiveLosers.set(c.id, winner.name);
     }
+    // A new inquiry sends the one matching campaign even when the lead is already
+    // in the system and already has the tags. The other matches stay off.
+    if (hasNewInquiry) inquiryWinnerId = winner.id;
   }
 
   for (const campaign of campaigns) {
@@ -1177,16 +1184,15 @@ export async function autoEnrollContact(
      * A campaign may fire when:
      *   • the contact is brand new to our platform (import) OR
      *   • FUB just created the person (peopleCreated) OR
-     *   • at least one of the campaign's trigger tags/source was freshly added on this sync.
-     *
-     * `hasNewInquiry` alone is intentionally NOT enough — a lead with historical
-     * city tags would otherwise re-enroll in every matching city campaign whenever
-     * a new inquiry event lands.
+     *   • at least one of the campaign's trigger tags/source was freshly added OR
+     *   • this is the one campaign chosen for a new inquiry (even if the lead
+     *     and their tags were already in the system).
      */
     const shouldEnroll =
       isNewContact ||
       isNewPersonEvent ||
       hasFreshSignal ||
+      campaign.id === inquiryWinnerId ||
       (hasNewInquiry && campaignNewlyMatched);
 
     const { data: existing } = await db
@@ -1221,14 +1227,16 @@ export async function autoEnrollContact(
             campaignName: campaign.name,
             reason: 'paused_after_reply',
           });
-        } else {
+          continue;
+        }
+        if (campaign.id !== inquiryWinnerId) {
           result.skipped.push({
             campaignId: campaign.id,
             campaignName: campaign.name,
             reason: 'already_enrolled',
           });
+          continue;
         }
-        continue;
       }
 
       if (existing.status === 'paused' || existing.status === 'completed') {
