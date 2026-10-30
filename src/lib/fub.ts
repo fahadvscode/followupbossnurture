@@ -428,28 +428,24 @@ export async function pushEvent(personId: number, event: {
   });
 }
 
-/** Page title Follow Up Boss shows in the website visits / last visit section. */
-export const DRIP_REPLY_VISIT_TITLE = 'Reply to drip';
+/** Page title Follow Up Boss shows in the website activity section. */
+export const DRIP_REPLY_VISIT_TITLE = 'enrolled';
 
 /**
- * Log a website visit so the person's last visit reads "Reply to drip".
- * Viewed Page does not start Follow Up Boss action plans. Source stays
- * "Drip Platform" so the lead's original source is left alone.
+ * Log a website visit the same way the live Follow Up Boss activity does:
+ * a Viewed Page titled "enrolled". Does not start action plans, and does not
+ * change the lead's original source.
  */
-export async function recordDripReplyVisit(personId: number, replyText: string): Promise<void> {
-  const snippet = replyText.replace(/\s+/g, ' ').trim().slice(0, 180);
+export async function recordDripReplyVisit(personId: number): Promise<void> {
   await fubFetch('/events', {
     method: 'POST',
     body: JSON.stringify({
       person: { id: personId },
-      source: 'Drip Platform',
-      system: 'Drip Platform',
+      source: 'maas SMS',
       type: 'Viewed Page',
       message: DRIP_REPLY_VISIT_TITLE,
-      description: snippet ? `Replied to a drip text: ${snippet}` : 'Replied to a drip text',
+      description: DRIP_REPLY_VISIT_TITLE,
       pageTitle: DRIP_REPLY_VISIT_TITLE,
-      pageUrl: 'https://fahadsold.com/reply-to-drip',
-      pageDuration: 1,
     }),
   });
 }

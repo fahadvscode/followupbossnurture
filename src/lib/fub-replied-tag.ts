@@ -42,12 +42,11 @@ export async function tagLeadRepliedInFub(
 
 /**
  * On an inbound text: tag the lead, give the file to Fahad Javed Office,
- * and record a website visit titled "Reply to drip".
+ * and record a website visit titled "enrolled".
  */
 export async function handleLeadReplyInFub(
   db: Db,
-  contact: { id: string; fub_id: number | null; tags?: string[] | null },
-  replyText: string
+  contact: { id: string; fub_id: number | null; tags?: string[] | null }
 ): Promise<void> {
   if (!contact.fub_id) return;
 
@@ -57,5 +56,5 @@ export async function handleLeadReplyInFub(
     .from('drip_contacts')
     .update({ assigned_agent: 'Fahad Javed Office' })
     .eq('id', contact.id);
-  await recordDripReplyVisit(contact.fub_id, replyText);
+  await recordDripReplyVisit(contact.fub_id);
 }

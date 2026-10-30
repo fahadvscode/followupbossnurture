@@ -196,7 +196,7 @@ async function handleReply(
 
   if (contact.fub_id) {
     try {
-      await handleLeadReplyInFub(db, contact, body);
+      await handleLeadReplyInFub(db, contact);
     } catch (e) {
       console.error('Failed to update Follow Up Boss after SMS reply:', e);
     }
