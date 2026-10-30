@@ -118,6 +118,7 @@ function isDripSmsActivity(e: Record<string, unknown>): boolean {
   const message = typeof e.message === 'string' ? e.message : '';
   const description = typeof e.description === 'string' ? e.description : '';
   if (/incoming_sms|outgoing_sms|sms/i.test(type)) return true;
+  if (type === 'viewed page' && /reply to drip/i.test(`${message} ${description}`)) return true;
   if (/drip platform/i.test(source)) return true;
   if (/^\[(SMS Reply|Drip:|Manual reply|Opt-out)/i.test(message)) return true;
   if (/^\[(SMS Reply|Drip:|Manual reply|Opt-out)/i.test(description)) return true;

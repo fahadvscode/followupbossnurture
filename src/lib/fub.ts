@@ -428,6 +428,32 @@ export async function pushEvent(personId: number, event: {
   });
 }
 
+/** Page title Follow Up Boss shows in the website visits / last visit section. */
+export const DRIP_REPLY_VISIT_TITLE = 'Reply to drip';
+
+/**
+ * Log a website visit so the person's last visit reads "Reply to drip".
+ * Viewed Page does not start Follow Up Boss action plans. Source stays
+ * "Drip Platform" so the lead's original source is left alone.
+ */
+export async function recordDripReplyVisit(personId: number, replyText: string): Promise<void> {
+  const snippet = replyText.replace(/\s+/g, ' ').trim().slice(0, 180);
+  await fubFetch('/events', {
+    method: 'POST',
+    body: JSON.stringify({
+      person: { id: personId },
+      source: 'Drip Platform',
+      system: 'Drip Platform',
+      type: 'Viewed Page',
+      message: DRIP_REPLY_VISIT_TITLE,
+      description: snippet ? `Replied to a drip text: ${snippet}` : 'Replied to a drip text',
+      pageTitle: DRIP_REPLY_VISIT_TITLE,
+      pageUrl: 'https://fahadsold.com/reply-to-drip',
+      pageDuration: 1,
+    }),
+  });
+}
+
 /** Create a Follow Up Boss task for a person (POST /tasks). */
 /** Register a one-off marketing email in FUB (POST /emCampaigns). Pair with postEmEmailDelivered. */
 export async function createEmCampaign(args: {
@@ -526,6 +552,20 @@ export async function resolveFubUserIdByEmail(email: string): Promise<number | u
   const users = await getCachedFubUsers();
   const match = users.find((u) => u.email.trim().toLowerCase() === needle);
   return match?.id;
+}
+
+/** Assign the person to Fahad Javed Office (sales@fahadsold.com). Does not touch tags or phones. */
+export async function assignPersonToOffice(personId: number): Promise<void> {
+  const userId =
+    (await resolveFubUserIdByEmail(FUB_OFFICE_USER_EMAIL)) ??
+    (await resolveFubUserIdByName('Fahad Javed Office'));
+  if (userId == null) {
+    throw new Error('Fahad Javed Office was not found in Follow Up Boss');
+  }
+  await fubFetch(`/people/${personId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ assignedUserId: userId }),
+  });
 }
 
 /**
