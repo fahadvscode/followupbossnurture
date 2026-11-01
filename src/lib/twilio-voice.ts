@@ -39,6 +39,7 @@ export function resolveVoiceForwardTarget(calledNumber: string): string | null {
   return forwardTo;
 }
 
+/** Forward an inbound drip call. `callerId` should be the original caller's number. */
 export function buildVoiceForwardTwiml(forwardTo: string, callerId?: string): string {
   const dialAttrs = callerId?.trim()
     ? ` callerId="${escapeXml(normalizePhone(callerId))}"`

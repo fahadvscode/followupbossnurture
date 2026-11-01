@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   const to = String(formData.get('To') || '');
+  const from = String(formData.get('From') || '');
   const forwardTo = resolveVoiceForwardTarget(to);
 
   if (!forwardTo) {
@@ -32,5 +33,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return twimlResponse(buildVoiceForwardTwiml(forwardTo, to));
+  // Pass the caller's number. Setting callerId to `to` forced 647-560-5822 onto the office phone.
+  return twimlResponse(buildVoiceForwardTwiml(forwardTo, from));
 }
