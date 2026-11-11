@@ -39,6 +39,35 @@ export function normalizeHaystack(text: string): string {
     .trim();
 }
 
+/** Tags that show up on many campaigns and do not name the project the lead just asked about. */
+const GENERIC_INQUIRY_TAGS = new Set([
+  'drip',
+  'detached',
+  'precon',
+  'fahad javed dashboard',
+  'townhome',
+  'townhomes',
+  'townhouse',
+  'n/a',
+]);
+
+/**
+ * True only when the inquiry text names this campaign's project (name or project id).
+ * A shared tag such as "Drip" or "Fahad Javed Dashboard", or the word "email" in
+ * "email template", is not a match.
+ */
+export function campaignMatchesLatestInquiry(
+  campaign: ExclusiveCampaign,
+  inquiryContext: string
+): boolean {
+  const haystack = normalizeHaystack(inquiryContext);
+  if (!haystack) return false;
+  const tags = allTriggerTags(campaign)
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t && !GENERIC_INQUIRY_TAGS.has(t));
+  return tags.some((tag) => haystack.includes(normalizeHaystack(tag)));
+}
+
 function allTriggerTags(campaign: ExclusiveCampaign): string[] {
   const tags: string[] = [];
   for (const t of campaign.trigger_tags || []) {
@@ -85,6 +114,7 @@ export function scoreCampaignForInquiry(
   if (variantNorm && haystack.includes(variantNorm)) score += 100;
 
   for (const token of variantNorm.split(' ').filter((t) => t.length >= 4)) {
+    if (token === 'email' || token === 'signup') continue;
     if (haystack.includes(token)) score += 12;
   }
 

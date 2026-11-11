@@ -33,7 +33,7 @@ import {
   pauseEnrollmentIfLeadReplied,
   shouldPauseStandardDripOnSmsReply,
 } from './lead-replied';
-import { pickExclusiveWinner } from './campaign-exclusivity';
+import { campaignMatchesLatestInquiry, pickExclusiveWinner } from './campaign-exclusivity';
 import { latestInquiryContextForContact } from './fub-person-sync';
 import type { DripContact, DripCampaignStep, DripEnrollment } from '@/types';
 
@@ -1114,19 +1114,32 @@ export async function autoEnrollContact(
   let inquiryWinnerId: string | null = null;
   if (contenders.length > 0) {
     let inquiryContext = options.inquiryContext || '';
-    if (contenders.length > 1 && !inquiryContext) {
+    if ((hasNewInquiry || contenders.length > 1) && !inquiryContext) {
       inquiryContext = await latestInquiryContextForContact(db, contactId).catch(() => '');
     }
-    const winner =
-      contenders.length === 1
-        ? contenders[0]
-        : pickExclusiveWinner(contenders, normalizedTags, inquiryContext);
-    for (const c of contenders) {
-      if (c.id !== winner.id) exclusiveLosers.set(c.id, winner.name);
+
+    if (hasNewInquiry && inquiryContext.trim()) {
+      // Old tags must not send a different project. Only a campaign named in
+      // this inquiry can run, even when it is the only tag match.
+      const matched = contenders.filter((c) => campaignMatchesLatestInquiry(c, inquiryContext));
+      if (matched.length > 0) {
+        const winner =
+          matched.length === 1
+            ? matched[0]
+            : pickExclusiveWinner(matched, normalizedTags, inquiryContext);
+        inquiryWinnerId = winner.id;
+        for (const c of contenders) {
+          if (c.id !== winner.id) exclusiveLosers.set(c.id, winner.name);
+        }
+      } else {
+        for (const c of contenders) exclusiveLosers.set(c.id, 'the latest inquiry');
+      }
+    } else if (contenders.length > 1) {
+      const winner = pickExclusiveWinner(contenders, normalizedTags, inquiryContext);
+      for (const c of contenders) {
+        if (c.id !== winner.id) exclusiveLosers.set(c.id, winner.name);
+      }
     }
-    // A new inquiry sends the one matching campaign even when the lead is already
-    // in the system and already has the tags. The other matches stay off.
-    if (hasNewInquiry) inquiryWinnerId = winner.id;
   }
 
   for (const campaign of campaigns) {
