@@ -420,17 +420,91 @@ export async function processDueStepsForEnrollment(
 
 // ─── Dispatch ────────────────────────────────────────────────────────
 
+/** A drip step is not sent again to the same person within this window. */
+const STEP_RESEND_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** A new signup can restart a drip the person is already in at most this often. */
+const DRIP_RESTART_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Claim the step before sending so two runs (cron + webhook) cannot both send it.
+ * Moves current_step forward only if nobody else already did.
+ */
+async function claimStep(
+  db: ReturnType<typeof getServiceClient>,
+  enrollmentId: string,
+  stepNumber: number
+): Promise<boolean> {
+  const { data } = await db
+    .from('drip_enrollments')
+    .update({ current_step: stepNumber })
+    .eq('id', enrollmentId)
+    .eq('status', 'active')
+    .eq('current_step', stepNumber - 1)
+    .select('id');
+  return Boolean(data && data.length > 0);
+}
+
+async function releaseStep(
+  db: ReturnType<typeof getServiceClient>,
+  enrollmentId: string,
+  stepNumber: number
+): Promise<void> {
+  await db
+    .from('drip_enrollments')
+    .update({ current_step: stepNumber - 1 })
+    .eq('id', enrollmentId)
+    .eq('current_step', stepNumber);
+}
+
+async function stepSentRecently(
+  db: ReturnType<typeof getServiceClient>,
+  msg: DueMessage
+): Promise<boolean> {
+  const since = new Date(Date.now() - STEP_RESEND_WINDOW_MS).toISOString();
+  const { count } = await db
+    .from('drip_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('contact_id', msg.contact.id)
+    .eq('campaign_id', msg.enrollment.campaign_id)
+    .eq('step_number', msg.step.step_number)
+    .eq('direction', 'outbound')
+    .neq('status', 'failed')
+    .gte('sent_at', since);
+  return (count || 0) > 0;
+}
+
 export async function processDueMessage(msg: DueMessage): Promise<boolean> {
-  switch (stepKind(msg.step)) {
-    case 'fub_task':
-      return processFubTaskStep(msg);
-    case 'fub_action_plan':
-      return processFubActionPlanStep(msg);
-    case 'email':
-      return processEmailStep(msg);
-    default:
-      return processSmsStep(msg);
+  const db = getServiceClient();
+  const stepNumber = msg.step.step_number;
+
+  if (!(await claimStep(db, msg.enrollment.id, stepNumber))) {
+    return true;
   }
+
+  if (await stepSentRecently(db, msg)) {
+    await advanceEnrollment(db, msg.enrollment, stepNumber);
+    return true;
+  }
+
+  let ok = false;
+  try {
+    switch (stepKind(msg.step)) {
+      case 'fub_task':
+        ok = await processFubTaskStep(msg);
+        break;
+      case 'fub_action_plan':
+        ok = await processFubActionPlanStep(msg);
+        break;
+      case 'email':
+        ok = await processEmailStep(msg);
+        break;
+      default:
+        ok = await processSmsStep(msg);
+    }
+  } finally {
+    if (!ok) await releaseStep(db, msg.enrollment.id, stepNumber);
+  }
+  return ok;
 }
 
 // ─── Shared: advance enrollment ─────────────────────────────────────
@@ -1270,6 +1344,17 @@ export async function autoEnrollContact(
         });
         continue;
       }
+
+      const lastStart = Date.parse(existing.enrolled_at || '');
+      if (Number.isFinite(lastStart) && Date.now() - lastStart < DRIP_RESTART_WINDOW_MS) {
+        result.skipped.push({
+          campaignId: campaign.id,
+          campaignName: campaign.name,
+          reason: 'restarted_within_7_days',
+        });
+        continue;
+      }
+
       await restartEnrollmentForCampaign(
         db,
         existing.id,
