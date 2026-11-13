@@ -5,6 +5,10 @@ import { normalizePhone } from '@/lib/utils';
 export const DEFAULT_VOICE_FORWARD_FROM = '+16475605822';
 const DEFAULT_FORWARD_TO = '+12895369724';
 
+/** Interview line. Calls to this number go to the interview desk, not the drip office line. */
+const INTERVIEW_VOICE_FROM = '+12367990238';
+const INTERVIEW_VOICE_TO = '+14167862367';
+
 function getClient() {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
@@ -28,13 +32,15 @@ export function resolveVoiceForwardFromNumber(): string {
   );
 }
 
-/** Any drip Twilio number that hits this webhook forwards to the office phone. */
+/** The interview line forwards to the interview desk. Other lines keep the drip office number. */
 export function resolveVoiceForwardTarget(calledNumber: string): string | null {
+  const called = normalizePhone(calledNumber);
+  if (!called) return null;
+  if (called === INTERVIEW_VOICE_FROM) return INTERVIEW_VOICE_TO;
   const forwardTo = normalizePhone(
     process.env.TWILIO_VOICE_FORWARD_TO?.trim() || DEFAULT_FORWARD_TO
   );
-  const called = normalizePhone(calledNumber);
-  if (!called || !forwardTo) return null;
+  if (!forwardTo) return null;
   return forwardTo;
 }
 
