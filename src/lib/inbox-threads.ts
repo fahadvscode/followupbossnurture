@@ -33,16 +33,158 @@ export type InboxThread = {
 type Filter = 'unread' | 'needs_action' | 'escalated' | 'human_takeover' | 'active' | 'all';
 
 type MsgRow = {
+  id: string;
   contact_id: string;
   campaign_id: string | null;
   enrollment_id: string | null;
   direction: string;
-  body: string;
+  body?: string | null;
   sent_at: string | null;
   created_at: string;
   channel: string | null;
   twilio_sid: string | null;
 };
+
+const MESSAGE_COLUMNS =
+  'id,contact_id,campaign_id,enrollment_id,direction,body,sent_at,created_at,channel,twilio_sid';
+const SLIM_COLUMNS =
+  'id,contact_id,campaign_id,enrollment_id,direction,sent_at,created_at,channel,twilio_sid';
+
+/** Threads with a text in this window always show. Older no-reply drips stay out of the list. */
+const RECENT_WINDOW_MS = 60 * 24 * 60 * 60 * 1000;
+const RECENT_SLICE_DAYS = [14, 30, 60];
+const CONTACT_IN_CHUNK = 80;
+
+function chunkIds(ids: string[], size = 200): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
+}
+
+function recentSlices(now = Date.now()): { gte: string; lt?: string }[] {
+  const slices: { gte: string; lt?: string }[] = [];
+  let newerEdge: number | null = null;
+  for (const days of RECENT_SLICE_DAYS) {
+    const olderEdge = now - days * 24 * 60 * 60 * 1000;
+    slices.push({
+      gte: new Date(olderEdge).toISOString(),
+      ...(newerEdge != null ? { lt: new Date(newerEdge).toISOString() } : {}),
+    });
+    newerEdge = olderEdge;
+  }
+  return slices;
+}
+
+function smsQuery<T extends { or: (filters: string) => T }>(query: T): T {
+  return query.or('channel.eq.sms,channel.is.null');
+}
+
+async function fetchOlderMessages(
+  db: ReturnType<typeof getServiceClient>,
+  contactIds: string[],
+  before: string
+): Promise<MsgRow[]> {
+  const unique = [...new Set(contactIds)];
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += CONTACT_IN_CHUNK) {
+    chunks.push(unique.slice(i, i + CONTACT_IN_CHUNK));
+  }
+
+  const pages = await Promise.all(
+    chunks.map((chunk) =>
+      fetchAllPages<MsgRow>((range) =>
+        smsQuery(
+          db
+            .from('drip_messages')
+            .select(SLIM_COLUMNS)
+            .in('contact_id', chunk)
+            .lt('created_at', before)
+        )
+          .order('created_at', { ascending: false })
+          .range(range.from, range.to)
+      )
+    )
+  );
+
+  return pages.flat();
+}
+
+async function loadContacts(
+  db: ReturnType<typeof getServiceClient>,
+  ids: string[]
+): Promise<Map<string, InboxThread['contact']>> {
+  const contactMap = new Map<string, InboxThread['contact']>();
+  await Promise.all(
+    chunkIds(ids).map(async (chunk) => {
+      const { data, error } = await db
+        .from('drip_contacts')
+        .select('id,first_name,last_name,phone,email')
+        .in('id', chunk);
+      if (error) {
+        console.error('inbox contact load failed:', error.message);
+        return;
+      }
+      for (const contact of data || []) {
+        contactMap.set(contact.id as string, contact as InboxThread['contact']);
+      }
+    })
+  );
+  return contactMap;
+}
+
+async function loadCampaigns(
+  db: ReturnType<typeof getServiceClient>
+): Promise<Map<string, InboxThread['campaign']>> {
+  const campaignMap = new Map<string, InboxThread['campaign']>();
+  const rows = await fetchAllPages<InboxThread['campaign']>((range) =>
+    db
+      .from('drip_campaigns')
+      .select('id,name,campaign_type')
+      .order('id', { ascending: true })
+      .range(range.from, range.to)
+  );
+  for (const campaign of rows) {
+    if (campaign?.id) campaignMap.set(campaign.id, campaign);
+  }
+  return campaignMap;
+}
+
+/** Latest-message previews for rows we loaded without a body. */
+async function attachLatestBodies(
+  db: ReturnType<typeof getServiceClient>,
+  messages: MsgRow[]
+): Promise<void> {
+  const latest = new Map<string, MsgRow>();
+  for (const msg of messages) {
+    if (!msg.contact_id) continue;
+    const key = `${msg.contact_id}:${msg.campaign_id || ''}`;
+    const at = msg.sent_at || msg.created_at;
+    const prev = latest.get(key);
+    if (!prev || at > (prev.sent_at || prev.created_at)) latest.set(key, msg);
+  }
+
+  const missing = [...latest.values()].filter((msg) => msg.body == null);
+  if (missing.length === 0) return;
+
+  const bodies = new Map<string, string>();
+  await Promise.all(
+    chunkIds(
+      missing.map((msg) => msg.id),
+      200
+    ).map(async (chunk) => {
+      const { data, error } = await db.from('drip_messages').select('id,body').in('id', chunk);
+      if (error) {
+        console.error('inbox preview load failed:', error.message);
+        return;
+      }
+      for (const row of data || []) bodies.set(row.id as string, (row.body as string) || '');
+    })
+  );
+
+  for (const msg of missing) {
+    if (bodies.has(msg.id)) msg.body = bodies.get(msg.id) ?? '';
+  }
+}
 
 function msgTime(m: MsgRow): string {
   return m.sent_at || m.created_at;
@@ -70,7 +212,17 @@ function matchesFilter(thread: InboxThread, filter: Filter): boolean {
   return true;
 }
 
-export async function loadInboxThreads(
+type InboxPayload = {
+  threads: InboxThread[];
+  needs_action_count: number;
+  unread_count: number;
+};
+
+let inboxCache: { at: number; payload: InboxPayload } | null = null;
+let inboxInflight: Promise<InboxPayload> | null = null;
+const INBOX_CACHE_MS = 12_000;
+
+async function loadInboxThreadsNow(
   filter: Filter = 'all',
   focusContactId?: string | null,
   searchQuery?: string | null
@@ -81,36 +233,87 @@ export async function loadInboxThreads(
 }> {
   const db = getServiceClient();
   const threadMap = new Map<string, InboxThread>();
-  const readMap = await loadInboxReadMap();
+  const search = (searchQuery || '').trim();
+  const since = new Date(Date.now() - RECENT_WINDOW_MS).toISOString();
 
-  const messages = await fetchAllPages<MsgRow>((range) =>
-    db
-      .from('drip_messages')
-      .select('contact_id,campaign_id,enrollment_id,direction,body,sent_at,created_at,channel,twilio_sid')
-      .order('created_at', { ascending: false })
-      .range(range.from, range.to)
+  const [recentPages, inbound, readMap, campaignMap, aiRows] = await Promise.all([
+    Promise.all(
+      recentSlices().map((slice) =>
+        fetchAllPages<MsgRow>((range) => {
+          let query = db.from('drip_messages').select(MESSAGE_COLUMNS).gte('created_at', slice.gte);
+          if (slice.lt) query = query.lt('created_at', slice.lt);
+          return smsQuery(query).order('created_at', { ascending: false }).range(range.from, range.to);
+        })
+      )
+    ),
+    fetchAllPages<MsgRow>((range) =>
+      db
+        .from('drip_messages')
+        .select(MESSAGE_COLUMNS)
+        .eq('direction', 'inbound')
+        .order('created_at', { ascending: false })
+        .range(range.from, range.to)
+    ),
+    loadInboxReadMap(),
+    loadCampaigns(db),
+    fetchAllPages<Record<string, unknown>>((range) =>
+      db
+        .from('drip_ai_conversations')
+        .select(
+          'id,contact_id,campaign_id,status,needs_attention,exchange_count,follow_up_count,last_outbound_at,last_inbound_at,escalation_reason,takeover_at,updated_at'
+        )
+        .order('updated_at', { ascending: false })
+        .range(range.from, range.to)
+    ),
+  ]);
+
+  const historyContactIds = new Set<string>();
+  if (focusContactId) historyContactIds.add(focusContactId);
+  for (const msg of inbound) {
+    if (msg.contact_id) historyContactIds.add(msg.contact_id);
+  }
+
+  const knownContactIds = new Set<string>(historyContactIds);
+  for (const page of recentPages) {
+    for (const msg of page) {
+      if (msg.contact_id) knownContactIds.add(msg.contact_id);
+    }
+  }
+
+  const [older, contactMap] = await Promise.all([
+    historyContactIds.size
+      ? fetchOlderMessages(db, [...historyContactIds], since)
+      : Promise.resolve([] as MsgRow[]),
+    loadContacts(db, [...knownContactIds]),
+  ]);
+
+  const byId = new Map<string, MsgRow>();
+  for (const msg of [...recentPages.flat(), ...inbound, ...older]) {
+    if (msg?.id) byId.set(msg.id, msg);
+  }
+  const messages = [...byId.values()];
+  await attachLatestBodies(db, messages);
+
+  const smsMessages = messages.filter((msg) =>
+    isSmsMessage({ ...msg, body: msg.body || '' })
   );
+  const unresolved = smsMessages.filter((msg) => !msg.campaign_id);
+  const resolveCampaignId = unresolved.length
+    ? await buildMessageCampaignResolver(db, unresolved)
+    : (msg: { campaign_id: string | null }) => msg.campaign_id;
 
-  const smsMessages = messages.filter(isSmsMessage);
-  const resolveCampaignId = await buildMessageCampaignResolver(db, smsMessages);
-
-  const contactIds = new Set<string>();
-  const campaignIds = new Set<string>();
   const messageBodiesByKey = new Map<string, string[]>();
 
   for (const msg of smsMessages) {
     const campaignId = resolveCampaignId(msg);
     if (!campaignId || !msg.contact_id) continue;
 
-    contactIds.add(msg.contact_id);
-    campaignIds.add(campaignId);
-
     const key = `${msg.contact_id}:${campaignId}`;
     const at = msgTime(msg);
-    const preview = { body: msg.body, direction: msg.direction, sent_at: at };
+    const preview = { body: msg.body || '', direction: msg.direction, sent_at: at };
 
     const bodies = messageBodiesByKey.get(key) || [];
-    bodies.push(msg.body);
+    if (msg.body) bodies.push(msg.body);
     messageBodiesByKey.set(key, bodies);
 
     const existing = threadMap.get(key);
@@ -162,18 +365,7 @@ export async function loadInboxThreads(
     }
   }
 
-  const aiRows = await fetchAllPages<Record<string, unknown>>((range) =>
-    db
-      .from('drip_ai_conversations')
-      .select('*, contact:drip_contacts(id,first_name,last_name,phone,email), campaign:drip_campaigns(id,name,campaign_type)')
-      .order('updated_at', { ascending: false })
-      .range(range.from, range.to)
-  );
-
   for (const conv of aiRows) {
-    contactIds.add(conv.contact_id as string);
-    campaignIds.add(conv.campaign_id as string);
-
     const key = `${conv.contact_id}:${conv.campaign_id}`;
     const contact = conv.contact as InboxThread['contact'];
     const campaign = conv.campaign as InboxThread['campaign'];
@@ -209,50 +401,6 @@ export async function loadInboxThreads(
       });
     }
     // Skip AI conversations with no SMS messages — inbox is SMS-only
-  }
-
-  const missingContactIds = [...contactIds].filter((id) =>
-    [...threadMap.values()].some((t) => t.contact_id === id && !t.contact)
-  );
-  const missingCampaignIds = [...campaignIds].filter((id) =>
-    [...threadMap.values()].some((t) => t.campaign_id === id && !t.campaign)
-  );
-
-  const contactMap = new Map<string, InboxThread['contact']>();
-  if (missingContactIds.length > 0) {
-    // PostgREST rejects oversized `in=(uuid,…)` URLs — batch in chunks.
-    for (let i = 0; i < missingContactIds.length; i += 200) {
-      const chunk = missingContactIds.slice(i, i + 200);
-      const { data: contacts, error } = await db
-        .from('drip_contacts')
-        .select('id,first_name,last_name,phone,email')
-        .in('id', chunk);
-      if (error) {
-        console.error('inbox contact load failed:', error.message);
-        continue;
-      }
-      for (const c of contacts || []) {
-        contactMap.set(c.id as string, c as InboxThread['contact']);
-      }
-    }
-  }
-
-  const campaignMap = new Map<string, InboxThread['campaign']>();
-  if (missingCampaignIds.length > 0) {
-    for (let i = 0; i < missingCampaignIds.length; i += 200) {
-      const chunk = missingCampaignIds.slice(i, i + 200);
-      const { data: campaigns, error } = await db
-        .from('drip_campaigns')
-        .select('id,name,campaign_type')
-        .in('id', chunk);
-      if (error) {
-        console.error('inbox campaign load failed:', error.message);
-        continue;
-      }
-      for (const c of campaigns || []) {
-        campaignMap.set(c.id as string, c as InboxThread['campaign']);
-      }
-    }
   }
 
   for (const thread of threadMap.values()) {
@@ -292,18 +440,64 @@ export async function loadInboxThreads(
 
   const unreadCount = allThreads.filter((t) => t.unread).length;
 
-  const search = (searchQuery || '').trim();
   if (search) {
     allThreads = allThreads.filter((t) =>
       threadMatchesInboxSearch(t, search, messageBodiesByKey.get(`${t.contact_id}:${t.campaign_id}`))
     );
   }
 
+  const threads = (search ? allThreads : allThreads.filter((t) => matchesFilter(t, filter))).map(
+    (thread) => {
+      const body = thread.last_message?.body || '';
+      if (!thread.last_message || body.length <= 160) return thread;
+      return {
+        ...thread,
+        last_message: { ...thread.last_message, body: `${body.slice(0, 160).trimEnd()}…` },
+      };
+    }
+  );
+
   return {
-    threads: search
-      ? allThreads
-      : allThreads.filter((t) => matchesFilter(t, filter)),
+    threads,
     needs_action_count: needsActionCount,
     unread_count: unreadCount,
+  };
+}
+
+/** One shared load for the list and the sidebar badge. A second call within a few seconds is instant. */
+export async function loadInboxThreads(
+  filter: Filter = 'all',
+  focusContactId?: string | null,
+  searchQuery?: string | null
+): Promise<InboxPayload> {
+  const search = (searchQuery || '').trim();
+  if (focusContactId || search) {
+    return loadInboxThreadsNow(filter, focusContactId, search);
+  }
+
+  if (inboxCache && Date.now() - inboxCache.at < INBOX_CACHE_MS) {
+    return applyInboxFilter(inboxCache.payload, filter);
+  }
+
+  if (!inboxInflight) {
+    inboxInflight = loadInboxThreadsNow('all')
+      .then((payload) => {
+        inboxCache = { at: Date.now(), payload };
+        return payload;
+      })
+      .finally(() => {
+        inboxInflight = null;
+      });
+  }
+
+  const payload = await inboxInflight;
+  return applyInboxFilter(payload, filter);
+}
+
+function applyInboxFilter(payload: InboxPayload, filter: Filter): InboxPayload {
+  if (filter === 'all') return payload;
+  return {
+    ...payload,
+    threads: payload.threads.filter((thread) => matchesFilter(thread, filter)),
   };
 }

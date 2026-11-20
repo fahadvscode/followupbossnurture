@@ -88,6 +88,7 @@ export function InboxThreadListItem({ thread, selected }: Props) {
     <Link
       href={href}
       aria-current={selected ? 'page' : undefined}
+      style={{ contentVisibility: 'auto', containIntrinsicSize: '92px' }}
       className={cn(
         'flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-colors hover:bg-card-hover active:bg-card-hover',
         selected

@@ -16,7 +16,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await loadInboxThreads(filter, focusContactId, search);
-    return Response.json(result);
+    return Response.json(result, {
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to load inbox';
     return Response.json({ error: message }, { status: 500 });

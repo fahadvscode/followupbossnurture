@@ -14,6 +14,22 @@ type Props = {
   selectedCampaignId?: string | null;
 };
 
+function matchesQuery(thread: InboxThreadListItemData, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const contact = thread.contact;
+  const name = `${contact?.first_name || ''} ${contact?.last_name || ''}`.toLowerCase();
+  const email = (contact?.email || '').toLowerCase();
+  const phone = (contact?.phone || '').replace(/\D/g, '');
+  const qDigits = q.replace(/\D/g, '');
+  if (name.includes(q)) return true;
+  if (email.includes(q)) return true;
+  if (qDigits.length >= 3 && phone.includes(qDigits)) return true;
+  if ((thread.campaign?.name || '').toLowerCase().includes(q)) return true;
+  if ((thread.last_message?.body || '').toLowerCase().includes(q)) return true;
+  return false;
+}
+
 function sortThreads(threads: InboxThreadListItemData[]): InboxThreadListItemData[] {
   return [...threads].sort((a, b) => {
     if (a.unread !== b.unread) return a.unread ? -1 : 1;
@@ -31,6 +47,7 @@ export function InboxThreadList({ selectedContactId, selectedCampaignId }: Props
   const [threads, setThreads] = useState<InboxThreadListItemData[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [shownCount, setShownCount] = useState(40);
   const hasLoadedRef = useRef(false);
   const selectedRef = useRef({ contactId: selectedContactId, campaignId: selectedCampaignId });
   selectedRef.current = { contactId: selectedContactId, campaignId: selectedCampaignId };
@@ -39,6 +56,10 @@ export function InboxThreadList({ selectedContactId, selectedCampaignId }: Props
     const t = window.setTimeout(() => setSearch(searchInput.trim()), 300);
     return () => window.clearTimeout(t);
   }, [searchInput]);
+
+  useEffect(() => {
+    setShownCount(40);
+  }, [search]);
 
   const applyThreads = useCallback((next: InboxThreadListItemData[], unread: number) => {
     const { contactId, campaignId } = selectedRef.current;
@@ -59,14 +80,13 @@ export function InboxThreadList({ selectedContactId, selectedCampaignId }: Props
       if (!opts?.silent && !hasLoadedRef.current) setLoading(true);
       const q = new URLSearchParams({ filter: 'all' });
       if (focusContactId) q.set('contactId', focusContactId);
-      if (search) q.set('search', search);
       const res = await fetch(`/api/inbox?${q.toString()}`);
       const data = await res.json();
       applyThreads(data.threads || [], data.unread_count || 0);
       hasLoadedRef.current = true;
       setLoading(false);
     },
-    [focusContactId, search, applyThreads]
+    [focusContactId, applyThreads]
   );
 
   useEffect(() => {
@@ -98,6 +118,9 @@ export function InboxThreadList({ selectedContactId, selectedCampaignId }: Props
       )
     );
   }, [selectedCampaignId, selectedContactId]);
+
+  const visibleThreads = search ? threads.filter((thread) => matchesQuery(thread, search)) : threads;
+  const renderedThreads = visibleThreads.slice(0, shownCount);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -141,23 +164,32 @@ export function InboxThreadList({ selectedContactId, selectedCampaignId }: Props
           <p className="text-xs text-muted">
             {loading
               ? 'Searching…'
-              : `${threads.length} result${threads.length === 1 ? '' : 's'} for “${search}”`}
+              : `${visibleThreads.length} result${visibleThreads.length === 1 ? '' : 's'} for “${search}”`}
           </p>
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 sm:px-3">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 sm:px-3"
+        onScroll={(event) => {
+          if (shownCount >= visibleThreads.length) return;
+          const el = event.currentTarget;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) {
+            setShownCount((count) => Math.min(visibleThreads.length, count + 40));
+          }
+        }}
+      >
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="h-7 w-7 animate-spin rounded-full border-2 border-accent border-t-transparent" />
           </div>
-        ) : threads.length === 0 ? (
+        ) : visibleThreads.length === 0 ? (
           <div className="px-4 py-16 text-center text-sm text-muted">
             {search ? `No conversations matching “${search}”.` : 'No SMS conversations yet.'}
           </div>
         ) : (
           <div className="space-y-1">
-            {threads.map((thread) => (
+            {renderedThreads.map((thread) => (
               <InboxThreadListItem
                 key={thread.id}
                 thread={thread}
